@@ -112,7 +112,7 @@ class FilenameParser(object):
             self.output_dir = self.target_dir
        
         if debug: print_debug('Using', self.output_dir, 'as output_dir')
-        self.check_output_dir(self.output_dir)
+        if not self.is_dummy_file: self.check_output_dir(self.output_dir)
 
         self.protoname = os.path.splitext(
                             os.path.basename(self.input_file))[0]
