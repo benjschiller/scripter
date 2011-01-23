@@ -18,11 +18,14 @@ Common Options:
 import getopt
 import sys
 import os
+import glob
 import signal
 import subprocess
 import functools
+import itertools
 from functools import partial
 
+global NO_ACTION
 global NUM_CPUS
 try:
     import multiprocessing
@@ -42,6 +45,8 @@ TARGET_DIR = None
 ALLOWED_EXTENSIONS = None
 NEXT_SCRIPT = None
 
+global action
+
 def _quote(s):
     return ''.join(["'",s,"'"])
 
@@ -58,12 +63,16 @@ class Usage(Exception):
     def __init__(self, *args):
         self.msg = ''.join(args)
 
+    def __str__(self):
+        return self.msg
+
 def print_debug(*args):
     statement = ' '.join(args)
     print >>sys.stderr, statement
 
 def assert_path(path):
     '''if path does not exist, raise IOError'''
+    if path is None: raise IOError('NoneType is not a valid path')
     if os.path.exists(path): return True
     else: raise IOError(' '.join(['File or directory', path, 'not found']))
 
@@ -97,15 +106,10 @@ class FilenameParser(object):
             self.is_invalid = False
 
         self.input_dir = os.path.split(self.input_file)[0]
+        if self.input_dir == '': self.input_dir = os.curdir
+        if debug: print_debug('Using', self.input_dir, 'as input_dir')
         self.file_extension = os.path.splitext(
                                 self.input_file)[1].lstrip(os.extsep)
-
-
-        self.source_dir = source_dir
-        if self.source_dir is None and debug:
-            print_debug('No source_dir specified')
-        elif debug:
-            print_debug('Using', self.source_dir, 'as source_dir')
 
         if target_dir is not None:
             self.target_dir = target_dir
@@ -115,21 +119,35 @@ class FilenameParser(object):
             raise Usage('Must specify an output directory with --target')
         if debug: print_debug('Using', self.target_dir, 'as target_dir')
     
-        if self.source_dir is not None and not is_dummy_file:
+        if not is_dummy_file:
+            # Make sure we have the right source dir
+            # try source_dir, then input_dir, then curdir
+            self.source_dir = source_dir
             try:
                 assert_path(source_dir)
-                if debug: print_debug('Using', source_dir, 'as source_dir')
-
-                fn_parts = filename.split(os.sep)
-                source_dir_index = fn_parts.index(source_dir)
-                
-                self.output_dir = os.path.join(self.target_dir,
-                                          *fn_parts[source_dir_index+1:-1])
             except IOError:
-                source_dir = os.curdir
-                if debug: print_debug('Using', source_dir, 'as source_dir')
-                self.output_dir = self.target_dir
+                source_dir = self.input_dir
+                try: assert_path(source_dir)
+                except IOError: source_dir = os.curdir
+                self.source_dir = source_dir
+            if debug: print_debug('Using', source_dir, 'as source_dir')
+
+            fn_parts = filename.split(os.sep)
+
+            # Make sure we have a valid target dir
+            # Try target_dir, then input_dir, then curdir
+            try:
+                source_dir_index = fn_parts.index(source_dir)
+                self.output_dir = os.path.join(self.target_dir,
+                                               *fn_parts[source_dir_index+1:-1])
+            except ValueError:
+                if not self.target_dir == os.curdir:
+                    self.output_dir = self.target_dir
+                else:
+                    self.output_dir = self.source_dir
+                
         else:
+            self.source_dir = source_dir
             self.output_dir = self.target_dir
        
         if debug: print_debug('Using', self.output_dir, 'as output_dir')
@@ -209,9 +227,7 @@ def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_file = True):
     '''
     # Check sanity
     if not os.path.exists(dir_or_file):
-        raise Usage(' '.join([source_dir, 'does not exist']))
-
-
+        raise Usage(' '.join([dir_or_file, 'does not exist']))
 
     # Base case
     if os.path.isfile(dir_or_file) and not dir_or_file.startswith('.'):
@@ -230,6 +246,54 @@ def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_file = True):
 
 def with_exit(fnc):
     return sys.exit(fnc())
+
+def valid_directories(directory):
+    '''wrapper for glob.glob, enforces that output must be a valid directory'''
+    directories = [dir for dir in glob.glob(directory) if os.path.isdir(dir)]
+    directories.reverse #to use the newest version, in case we have foo-version
+    return directories
+
+def path_to_executable(name, directory=None):
+    """
+    construct the path to the executable, search in order
+    
+    the directory specified (or any directory that matches with Unix
+                             style pathname pattern expansion*)
+    then env PATH
+    then the current directory
+    then give up
+
+    *we reverse the order so that we will usually get the newest version
+    """
+    # if name is a list, iterate over it to find exe and catch errors
+    if type(name) is list:
+        for try_name in name:
+            try: path_to = path_to_executable(try_name)
+            except Usage: continue
+            return path_to
+    if type(name) is list:
+        raise Usage("Could not find an executable with any of these names:",
+                    ", ".join(name))
+
+    #try specified directory
+    for directory in valid_directories(directory):
+        if directory is not None:
+            full_path = os.path.join(directory, name)
+            if os.path.exists(full_path):
+                if os.access(full_path, os.X_OK):
+                    return full_path
+    #try PATH
+    try: PATH = os.environ['PATH']
+    except NameError:
+        try: PATH = os.defpath
+        except NameError: raise Usage("Could not determine PATH")
+    for p in PATH.split(os.pathsep):
+        full_path = os.path.join(p, name)
+        if os.path.exists(full_path):
+            if os.access(full_path, os.X_OK):
+                return full_path
+    #give up
+    raise Usage("Could not find executable", name)
 
 def version_info():
     if globals().has_key('SCRIPT_VERSION'):
@@ -251,11 +315,36 @@ def check_script_options(options):
     # return a dictionary with more options for action
     return script_options
 
+def valid_int(thing, msg, vmin, vmax):
+    """
+    checks if something is a valid integer
+    and thing >= vmin and thing <= vmax
+
+    returns the thing as an integer
+    """
+    try:
+        int_thing = int(thing)
+    except ValueError:
+        try: raise Usage(msg)
+        except NameError:
+            raise Usage("Undefined variable is not a valid integer")
+
+    if int_thing < vmin or int_thing > vmax:
+        try: raise Usage(msg)
+        except NameError:
+            raise Usage("Undefined variable is not a valid integer")
+    return int_thing
+
+def extend_buffer(b, x, spacerlines=0):
+    """extends buffer b with string x, ignores if x is None"""
+    if b is None or x is None: return b
+    else: return os.linesep.join([b] + [""]*spacerlines  + [x])
+
 def main_body(action, filename_parser=None, argv=None):
     SHORT_OPTS = "hvpr:"
     VERBOSITY_LEVELS = ['debug', 'verbose', 'quiet', 'silent']
     LONG_OPTS = ["help", "version", "find", "target=", 
-                 "num-cpus=", "recursive"] + VERBOSITY_LEVELS 
+                 "num-cpus=", "recursive", "no-action"] + VERBOSITY_LEVELS 
 
     fp_kwargs = {}
     if argv is None:
@@ -265,7 +354,6 @@ def main_body(action, filename_parser=None, argv=None):
     except NameError: pass
     try: LONG_OPTS.extend(SCRIPT_LONG_OPTS)
     except NameError: pass
-    print SHORT_OPTS
     try:
         opts, args = getopt.gnu_getopt(argv[1:], SHORT_OPTS, LONG_OPTS)
         options = {}
@@ -275,10 +363,6 @@ def main_body(action, filename_parser=None, argv=None):
         raise Usage(str(msg))
 
     try:
-        # check script-specific options first
-        script_options = check_script_options(options)
-        fp_kwargs.update(script_options)
-
         # check for help
         if options.has_key('h') or options.has_key('help'):
             raise Usage(_documentation())
@@ -286,6 +370,10 @@ def main_body(action, filename_parser=None, argv=None):
         elif options.has_key('v') or options.has_key('version'):
             raise Usage(version_info())
 
+        # check script-specific options next
+        script_options = check_script_options(options)
+        fp_kwargs.update(script_options)
+        
         # check verbosity
         for verbosity in VERBOSITY_LEVELS:
             exec(''.join([verbosity,' = ', "options.has_key('",
@@ -305,13 +393,15 @@ def main_body(action, filename_parser=None, argv=None):
 
         # Check num-cpus
         if options.has_key('p'):
-            global NUM_CPUS
             NUM_CPUS = int(options['p'])
         elif options.has_key('num-cpus'):
-            global NUM_CPUS
             NUM_CPUS = int(options['num-cpus'])
 
         fp_kwargs['source_dir'] = SOURCE_DIR
+
+        # Check if this is a test run
+        if options.has_key('no-action'): NO_ACTION = True
+        else: NO_ACTION = False 
 
         # check if user specified a target_dir
         if options.has_key('target'):
@@ -324,9 +414,7 @@ def main_body(action, filename_parser=None, argv=None):
 
         # If a FilenameParser is not provided, use the built-in
         # and allow script to specify TARGET_DIR
-        if filename_parser is None:
-            filename_parser = FilenameParser
-        filename_parser = partial(filename_parser, **fp_kwargs)
+        if filename_parser is None: filename_parser = FilenameParser
 
         # Check if we need to find the files or if any were specified
         # Also check if we have a proper filename parser
@@ -342,7 +430,8 @@ def main_body(action, filename_parser=None, argv=None):
                 if ALLOWED_EXTENSIONS is not None:
                     print_debug('Valid file extensions are',
                                 ' '.join(ALLOWED_EXTENSIONS))
-            sequence = find_files(filename_parser, **verbose_kwargs)
+            sequence = find_files(partial(filename_parser, **fp_kwargs),
+                                  **verbose_kwargs)
         else:
             sequence = []
         
@@ -353,7 +442,7 @@ def main_body(action, filename_parser=None, argv=None):
                             ' '.join(ALLOWED_EXTENSIONS))
 
         # Also includes explicitly mentioned files
-        sequence += [filename_parser(pirate) for pirate in args]
+        sequence += [filename_parser(pirate, **fp_kwargs) for pirate in args]
         filtered_sequence = [x for x in sequence if not x.is_invalid]
 
     except Usage, err:
@@ -363,7 +452,12 @@ def main_body(action, filename_parser=None, argv=None):
         print_debug("for help use --help")
         return 2
     
-    spawn_workers(action, filtered_sequence, **script_options)
+    if not NO_ACTION:
+        spawn_workers(action, filtered_sequence, **script_options)
+    elif debug:
+        print_debug('Test run. Nothing done.')
+        print_debug('I would have acted on these files:',
+                    ', '.join([str(f) for f in filtered_sequence]))
 
     if NEXT_SCRIPT is not None:
         if debug: print_debug('Launching the next script', NEXT_SCRIPT)
@@ -378,23 +472,29 @@ def debug_action(action):
     return lambda item: action(item, debug=True)
 
 def spawn_workers(action, sequence, **kwargs):
-   verbose = kwargs['verbose']
-   debug = kwargs['debug']
-   silent = kwargs['silent']
-   if verbose: print >>sys.stdout, ' '.join(['Using', str(NUM_CPUS),
-                                             'cpus...'])
-   if debug: print_debug('Debugging mode enabled')
+    max_cpus = len(sequence)
+    verbose = kwargs['verbose']
+    debug = kwargs['debug']
+    silent = kwargs['silent']
+    if debug: print_debug('Debugging mode enabled')
 
-   if NUM_CPUS == 1:
-       if debug: print_debug('multiprocessing disabled')
-       for item in sequence:
-           stdout = action(item, **kwargs)
-           if not silent and stdout is not None: print >>sys.stdout, stdout
-   else:
-       if debug: print_debug('multiprocessing enabled')
-       signal.signal(signal.SIGCHLD, signal.SIG_DFL)
-       p = multiprocessing.Pool(processes=NUM_CPUS)
-       stdouts = p.map(partial(action, **kwargs), sequence)
-       stdouts = [x for x in stdouts if x is not None]
-       if not silent and stdouts is not None:
-           print >>sys.stdout, os.linesep.join(stdouts)
+    used_cpus = min([NUM_CPUS, max_cpus])
+
+    if used_cpus == 1:
+        if debug: print_debug('multiprocessing disabled')
+        for item in sequence:
+            stdout = action(item, **kwargs)
+            if not silent and stdout is not None: print >>sys.stdout, stdout
+    else:
+        if debug:
+            print_debug('WARNING: multiprocessing enabled', os.linesep,
+                        'debug output may get mangeled')
+        if verbose: print >>sys.stdout, ' '.join(['Using', str(used_cpus),
+                                              'cpu(s)...'])
+        signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+        p = multiprocessing.Pool(processes=used_cpus)
+        results = [p.apply_async(action, (item,), kwargs) for item in sequence]
+        stdouts = (result.get() for result in results)
+        stdouts_good = itertools.ifilter(lambda x: x is not None, stdouts)
+        if not silent and stdouts is not None:
+            print >>sys.stdout, os.linesep.join(stdouts_good)
