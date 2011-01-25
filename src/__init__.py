@@ -52,7 +52,10 @@ class Environment(object):
     provides an execution environment for jobs
     '''
     
-    def __init__(self, short_opts='', long_opts=[]):
+    def __init__(self, short_opts='', long_opts=[], doc='',
+                 version=''):
+        self._script_version = version
+        self._script_doc = doc
         self._unprocessed_sequence = []
         self._sequence = []
         self._script_kwargs = {}
@@ -181,10 +184,11 @@ class Environment(object):
         options = self._options
         # check for help
         if options.has_key('h') or options.has_key('help'):
-            raise Usage(_documentation())
+            raise Usage(os.linesep.join([PROGRAM_NAME, __doc__,
+                                         self._script_doc]))
         # check for version info
         elif options.has_key('v') or options.has_key('version'):
-            raise Usage(version_info())
+            raise Usage(PROGRAM_NAME, ': version ', self._script_version)
         return
     
     def _set_initial_num_cpus(self):
@@ -223,6 +227,7 @@ class Environment(object):
         i.e. {'a': 'apple', 'b': 'brain'}
         
         parse_any_opts will enforce "-" -> "_" name replacement
+        and will also strip '=' or ':' from the end of names
         
         if a key is not in short_to_long, then we will leave it unchanged
         parse_short_opts(require_long = False) is equivalent to
@@ -244,6 +249,7 @@ class Environment(object):
         i.e. {'a': 'apple', 'b': 'brain'}
         
         parse_short_opts will enforce "-" -> "_" name replacement
+        and will also strip '=' or ':' from the end of names
         
         if require_long = True, then any item in short_opts must be present
         as a key in short_to_long. if require_long is False, then we will leave
@@ -256,10 +262,12 @@ class Environment(object):
         real_kwargs = {}
         for k, v in kwargs:
             if require_long:
-                real_kwargs[short_to_long[k]] = v
+                option = short_to_long[k]
             else:
-                if short_to_long.has_key(k): real_kwargs[short_to_long[k]] = v
-                else: real_kwargs[k] = v
+                if short_to_long.has_key(k): option = short_to_long[k]
+                else: option = k
+            pyoption = "_".join(option.split("-")).rstrip(':=')
+            real_kwargs[option] = v
         if update_script_kwargs: self.update_script_kwargs(real_kwargs)
         return real_kwargs
 
@@ -268,8 +276,11 @@ class Environment(object):
         """
         parse_long_opts behaves like parse_boolean_opts, except that it assigns
         the argument for option to the dictionary of keywords,
-        i.e --foo=boo --> {'foo': 'boo'|
+        i.e --foo=boo --> {'foo': 'boo'}
 
+        parse_long_opts will enforce "-" -> "_" name replacement
+        and will also strip '=' or ':' from the end of names
+        
         the exception is that '' is translated to True
         so parse_long_opts can still handle boolean options)
         You may override what value is used instead of True by setting
@@ -286,7 +297,7 @@ class Environment(object):
         kwargs = {}
         options = self.get_options()
         for option in boolean_opts:
-            pyoption = "_".join(option.split("-"))
+            pyoption = "_".join(option.split("-")).rstrip(':=')
             if options[option] == '':
                 kwargs[pyoption] = replacement_value
             else:
@@ -311,7 +322,7 @@ class Environment(object):
         kwargs = {}
         options = self.get_options()
         for option in boolean_opts:
-            pyoption = "_".join(option.split("-"))
+            pyoption = "_".join(option.split("-")).rstrip(':=')
             kwargs[pyoption] = options.has_key(option)
         if update_script_kwargs: self.update_script_kwargs(kwargs)
         return kwargs
@@ -526,15 +537,6 @@ class Environment(object):
 def _quote(s):
     return ''.join(["'", s ,"'"])
 
-def _documentation():
-    try:
-        doc = SCRIPT_DOC + __doc__
-    except NameError:
-        doc = __doc__
-        pass
-    finally:
-        return doc
-
 class Usage(Exception):
     def __init__(self, *args):
         self.msg = ''.join(args)
@@ -583,8 +585,6 @@ class FilenameParser(object):
 
         if target_dir is not None:
             self.target_dir = target_dir
-        elif TARGET_DIR is not None:
-            self.target_dir = TARGET_DIR
         else:
             raise Usage('Must specify an output directory with --target')
         if debug: print_debug('Using', self.target_dir, 'as target_dir')
@@ -737,12 +737,6 @@ def path_to_executable(name, directory=None):
                 return full_path
     #give up
     raise Usage("Could not find executable", name)
-
-def version_info():
-    if globals().has_key('SCRIPT_VERSION'):
-        return ' '.join(['version', SCRIPT_VERSION])
-    else:
-        return 'version not specified'
 
 def usage_info():
     return ' '.join(['Usage:', PROGRAM_NAME, '[OPTIONS]', 'FILE(S)'])
