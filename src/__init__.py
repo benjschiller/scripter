@@ -165,6 +165,9 @@ class Environment(object):
             self._sequence.append(filename_parser(item))
         for item in _iter_except(additional_sequence.pop, IndexError):
             self._sequence.append(filename_parser(item))
+    for option in BOOLEAN_OPTS:
+        pyoption = "_".join(option.split("-"))
+        sopts[pyoption] = options.has_key(option)
         return
             
     def _check_if_dry_run(self):
@@ -212,6 +215,109 @@ class Environment(object):
         and whose values are the corresponding values (or None)       
         '''
         return self._options
+
+    def parse_any_opts(self, any_opts, short_to_long, update_script_kwargs=True,
+                       replacement_value=True):
+        """
+        behaves like parse_long_opts
+        
+        but you must also provide a dictionary short_to_long which specifies
+        the long variable names correspond to the single letter options
+        i.e. {'a': 'apple', 'b': 'brain'}
+        
+        parse_any_opts will enforce "-" -> "_" name replacement
+        
+        if a key is not in short_to_long, then we will leave it unchanged
+        parse_short_opts(require_long = False) is equivalent to
+        parse_any_opts()
+        """
+        return self.parse_short_opts(short_opts, short_to_long,
+                                     require_long=False,
+                                     
+                                     update_script_kwargs=update_script_kwargs,
+                                     replacement_value = replacement_value)
+
+    def parse_short_opts(self, short_opts, short_to_long, require_long=True,
+                         update_script_kwargs=True, replacement_value=True):
+        """
+        parse_short_opts behaves like parse_long_opts
+        
+        but you must also provide a dictionary short_to_long which specifies
+        the long variable names correspond to the single letter options
+        i.e. {'a': 'apple', 'b': 'brain'}
+        
+        parse_short_opts will enforce "-" -> "_" name replacement
+        
+        if require_long = True, then any item in short_opts must be present
+        as a key in short_to_long. if require_long is False, then we will leave
+        keys unchanged when they are not present.
+        parse_short_opts(require_long = False) is equivalent to
+        parse_any_opts()
+        """
+        kwargs = self.parse_long_opts(short_opts, update_script_kwargs=False,
+                                      replacement_value=replacement_value)
+        real_kwargs = {}
+        for k, v in kwargs:
+            if require_long:
+                real_kwargs[short_to_long[k]] = v
+            else:
+                if short_to_long.has_key(k): real_kwargs[short_to_long[k]] = v
+                else: real_kwargs[k] = v
+        if update_script_kwargs: self.update_script_kwargs(real_kwargs)
+        return real_kwargs
+
+    def parse_long_opts(self, long_opts, update_script_kwargs=True,
+                        replacement_value = True):
+        """
+        parse_long_opts behaves like parse_boolean_opts, except that it assigns
+        the argument for option to the dictionary of keywords,
+        i.e --foo=boo --> {'foo': 'boo'|
+
+        the exception is that '' is translated to True
+        so parse_long_opts can still handle boolean options)
+        You may override what value is used instead of True by setting
+        replacement_value to something else
+        
+        by default, this method will also add the dictionary to the Environment
+        instance's script_kwargs using update_script_kwargs
+        this behavior can be disabled with update_script_kwargs = False
+        
+        e.g. if self.get_options() = {'help': '', 'flag': 'red'}, then
+        >>> parse_boolean_opts(['flag', 'help'])
+        {'flag': 'red', 'help': None}
+        """
+        kwargs = {}
+        options = self.get_options()
+        for option in boolean_opts:
+            pyoption = "_".join(option.split("-"))
+            if options[option] == '':
+                kwargs[pyoption] = replacement_value
+            else:
+                kwargs[pyoption] = option[option]
+        if update_script_kwargs: self.update_script_kwargs(kwargs)
+        return kwargs
+    
+    def parse_boolean_opts(self, boolean_opts, update_script_kwargs=True):
+        '''
+        parse_boolean_opts takes a list of boolean options and
+        returns a dictionary with whether those options were present in argv
+        (changes "-" to "_" in variable names where appropriate)
+        
+        by default, this method will also add the dictionary to the Environment
+        instance's script_kwargs using update_script_kwargs
+        this behavior can be disabled with update_script_kwargs = False
+        
+        e.g. if self.get_options() = {'help': None}, then
+        >>> parse_boolean_opts(['flag', 'help'])
+        {'flag': True, 'help': False}
+        '''
+        kwargs = {}
+        options = self.get_options()
+        for option in boolean_opts:
+            pyoption = "_".join(option.split("-"))
+            kwargs[pyoption] = options.has_key(option)
+        if update_script_kwargs: self.update_script_kwargs(kwargs)
+        return kwargs
 
     @exit_on_Usage
     def parse_argv(self):
