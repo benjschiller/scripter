@@ -119,23 +119,20 @@ class Environment(object):
                         'directory')
         if self.is_debug():
             print_debug('Searching for valid files')
-            if ALLOWED_EXTENSIONS is not None:
+            if self.allowed_extensions is not None:
                 print_debug('Valid file extensions are',
-                            ' '.join(ALLOWED_EXTENSIONS))
+                            ' '.join(self.allowed_extensions))
         filename_parser = get_filename_parser()
         parsed_filenames = []
         leaves_in_source_dir = leaves(source_dir)
         for leaf in leaves_in_source_dir:
-            if is_valid_file(leaf):
+            if self._is_valid_file(leaf):
                 parsed_filenames.append(filename_parser(leaf))
         return parsed_filenames
 
-    def get_sequence(self, filtered=True):
+    def get_sequence(self):
         '''
         returns the sequence of FilenameParser objects for action
-        
-        if filtered is True, returns only objects where
-                             self.is_invalid is False
         '''
         options = self.get_options()
         # Always update the sequence before getting it
@@ -145,10 +142,7 @@ class Environment(object):
             self._update_sequence()
             self._is_first_time = False
         sequence = self._sequence
-        if filtered:
-            return (x for x in sequence if not x.is_invalid)
-        else:
-            return sequence
+        return sequence
 
     def _update_sequence(self, additional_sequence=[]):
         '''
@@ -159,21 +153,23 @@ class Environment(object):
             print_debug('Updating sequence...')
         if self.is_debug():
             print_debug('Checking for user-specified files')
-            if ALLOWED_EXTENSIONS is not None:
+            if self.allowed_extensions is not None:
                 print_debug('Valid file extensions are',
-                            ' '.join(ALLOWED_EXTENSIONS))
+                            ' '.join(self.allowed_extensions))
         filename_parser = self.get_filename_parser()
         # note, filenames get processed backward
-        for item in _iter_except(self._unprocessed_sequence.pop, IndexError):
-            self._sequence.append(filename_parser(item))
-        for item in _iter_except(additional_sequence.pop, IndexError):
-            self._sequence.append(filename_parser(item))
+        files = itertools.chain(_iter_except(self._unprocessed_sequence.pop,
+                                             IndexError),
+                                _iter_except(additional_sequence.pop,
+                                             IndexError))
+        for f in itertools.ifilter(self._is_valid_file, files):
+            self._sequence.append(filename_parser(f))
         return
             
     def _check_if_dry_run(self):
         '''check if this is a test run (no action)'''
         options = self._options
-        self._allow_action = options.has_key('no-action')
+        self._allow_action = not options.has_key('no-action')
         return
 
     @exit_on_Usage
@@ -398,9 +394,17 @@ class Environment(object):
         if with_args is True, then partial is used to apply arguments as
         appropriate
         '''
+        
         if with_args:
+            if self.is_debug():
+                print_debug('Using', str(self._filename_parser.__name__),
+                            'with kwargs',
+                            str(self.get_fp_kwargs()))
             return partial(self._filename_parser, **self.get_fp_kwargs())
         else:
+            if self.is_debug():
+                print_debug('Using', str(self._filename_parser.__name__),
+                            'without kwargs')
             return self._filename_parser
 
     def set_num_cpus(self, num):
@@ -471,6 +475,27 @@ class Environment(object):
                                        (target_dir_item, source_dir_item))
         return dict((item for item in kwargs_items))
    
+    def _is_valid_file(self, f):
+        '''checks if a file is valid for processing'''
+        if not os.path.isfile(f):
+            if self.is_debug():
+                print_debug('Skipping', _quote(f), '. It is not a file.')
+            return False
+        elif f.startswith('.'):
+            print_debug('Skipping hidden file', _quote(f))
+            return False
+        elif self.allowed_extensions is None:
+            return True
+        else:
+            file_ext = os.path.splitext(f)[1].lstrip(os.extsep)
+            if file_ext in self.allowed_extensions:
+                return True
+            else:
+                if self.is_debug():
+                    print_debug('Skipping', _quote(f), 'because file',
+                                'does not have a valid file extension')
+                return False
+    
     @exit_on_Usage 
     def do_action(self, action):
         '''
@@ -484,7 +509,7 @@ class Environment(object):
         if not self._allow_action:
             print_debug('Test run. Nothing done.')
             print_debug('I would have acted on these files:',
-                        ', '.join([str(f) for f in sequence()]))
+                        ', '.join([str(f) for f in sequence]))
             return self.execute_next_script()
         
         kwargs = self.get_action_kwargs()
@@ -504,8 +529,8 @@ class Environment(object):
             if self.is_debug():
                 print_debug('WARNING: multiprocessing enabled', os.linesep,
                             'debug output may get mangeled')
-            if verbose: print >>sys.stdout, ' '.join(['Using', str(used_cpus),
-                                                  'cpu(s)...'])
+            if self.is_verbose():
+                print_debug('Using', str(used_cpus), 'cpu(s)...')
             signal.signal(signal.SIGCHLD, signal.SIG_DFL)
             p = multiprocessing.Pool(processes=used_cpus)
             results = [p.apply_async(action, (item,), kwargs) for
@@ -523,14 +548,14 @@ class Environment(object):
         
         if there isn't one, then die
         '''
-        if NEXT_SCRIPT is not None:
+        if self.next_script is not None:
             if debug: print_debug('Launching the next script', NEXT_SCRIPT)
             # always proceed with --find
             next_script_args = ["--find"]
             # pass along verbosity level
-            for verbosity in VERBOSITY_LEVELS:
+            for verbosity in self.verbosity_levels:
                 exec(''.join(["next_script_args.append('", verbosity, "')"]))
-            os.execlp(NEXT_SCRIPT, "--find")
+            os.execlp(self.next_script, "--find")
         else:
             sys.exit(0)
     
@@ -562,20 +587,12 @@ class FilenameParser(object):
                  *args, **kwargs):
 
         self._debug = debug
-
         self.additional_args = args
         self.__dict__.update(kwargs)
 
         if debug: print_debug('Parsing filename', filename)
 
         self.set_input_file(filename)
-        if not is_valid_file(self.input_file):
-            if debug: print_debug('Skipping file because it does not have',
-                                  'a valid file extension')
-            self.is_invalid = True
-            return
-        else:
-            self.is_invalid = False
 
         self.input_dir = os.path.split(self.input_file)[0]
         if self.input_dir == '': self.input_dir = os.curdir
@@ -583,37 +600,19 @@ class FilenameParser(object):
         self.file_extension = os.path.splitext(
                                 self.input_file)[1].lstrip(os.extsep)
 
-        if target_dir is not None:
-            self.target_dir = target_dir
-        else:
-            raise Usage('Must specify an output directory with --target')
+        if target_dir is not None: self.target_dir = target_dir
+        else: raise Usage('Must specify an output directory with --target')
         if debug: print_debug('Using', self.target_dir, 'as target_dir')
-    
-        # Make sure we have the right source dir
-        # try source_dir, then input_dir, then curdir
-        self.source_dir = source_dir
-        try:
-            assert_path(source_dir)
-        except IOError:
-            source_dir = self.input_dir
-            try: assert_path(source_dir)
-            except IOError: source_dir = os.curdir
-            self.source_dir = source_dir
-        if debug: print_debug('Using', source_dir, 'as source_dir')
 
-        fn_parts = filename.split(os.sep)
-
-        # Make sure we have a valid target dir
-        # Try target_dir, then input_dir, then curdir
+        # Make sure we have the right output dir
+        # Try to build target_dir/x/y/z from source_dir/x/y/z in input path
+        # then resort to input_dir
         try:
-            source_dir_index = fn_parts.index(source_dir)
+            source_dir_index = filename.split(os.sep).index(source_dir)
             self.output_dir = os.path.join(self.target_dir,
                                            *fn_parts[source_dir_index+1:-1])
         except ValueError:
-            if not self.target_dir == os.curdir:
                 self.output_dir = self.target_dir
-            else:
-                self.output_dir = self.source_dir
        
         if debug: print_debug('Using', self.output_dir, 'as output_dir')
         self.check_output_dir(self.output_dir)
@@ -649,19 +648,6 @@ class FilenameParser(object):
         return os.extsep.join([self.protoname, ext])
 
 
-def is_valid_file(f):
-    '''checks if a file is valid for processing'''
-    if not os.path.isfile(f):
-        return False
-    elif f.startswith('.'):
-        return False
-    elif ALLOWED_EXTENSIONS is None:
-        return True
-    elif os.path.splitext(f)[1].lstrip(os.extsep) in ALLOWED_EXTENSIONS:
-        return True
-    else:
-        return False
-    
 @exit_on_Usage
 def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_file = True):
     '''takes as input a VALID path and descends into all directories
