@@ -15,9 +15,12 @@ Common Options:
 '''
 # See `Environment.__init__' definition #
 # for valid flags            #
+try: import multiprocessing
+except ImportError: pass
 import getopt
 import sys
 import os
+import platform
 import glob
 import signal
 import subprocess
@@ -194,9 +197,10 @@ class Environment(object):
         # try to set number of cpus
         options = self._options
         num_cpus = 1
-        if 'multiprocessing' in dir():
-            if 'cpu_count' in dir('multiprocessing'):
+        try:
+            if 'cpu_count' in dir(multiprocessing):
                 num_cpus = multiprocessing.cpu_count()
+        except NameError: pass
         # Check num-cpus/p
         if options.has_key('p'):
             num_cpus = int(options['p'])
@@ -531,7 +535,8 @@ class Environment(object):
                             'debug output may get mangeled')
             if self.is_verbose():
                 print_debug('Using', str(used_cpus), 'cpu(s)...')
-            signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+            if not platform.system() == 'Windows':
+                signal.signal(signal.SIGCHLD, signal.SIG_DFL)
             p = multiprocessing.Pool(processes=used_cpus)
             results = [p.apply_async(action, (item,), kwargs) for
                        item in sequence]
@@ -649,13 +654,17 @@ class FilenameParser(object):
 
 
 @exit_on_Usage
-def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_file = True):
+def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_files = True,
+           max_depth = None):
     '''takes as input a VALID path and descends into all directories
 
     WARNING:
     this *will* get caught in an infinite loop if you have a symlink
     which references a node above itself in tree
     '''
+    def is_hidden(node):
+        return ignore_hidden_files and node.startswith('.')
+    
     # Check sanity
     if not os.path.exists(dir_or_file):
         raise Usage(' '.join([dir_or_file, 'does not exist']))
@@ -670,19 +679,31 @@ def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_file = True):
     for node in os.listdir(dir_or_file):
         node_path = os.path.join(dir_or_file, node)
         if os.path.isdir(node_path):
-            files.extend(leaves(node_path))
-        elif os.path.isfile(node_path) and not node_path.startswith('.'):
+            if max_depth is None:
+                files.extend(leaves(node_path, allow_symlinks=allow_symlinks,
+                                    ignore_hidden_files=ignore_hidden_files,
+                                    max_depth=max_depth))
+            elif max_depth > 1:
+                files.extend(leaves(node_path, allow_symlinks=allow_symlinks,
+                                    ignore_hidden_files=ignore_hidden_files,
+                                    max_depth=max_depth-1))
+            elif max_depth == 1:
+                if os.path.isfile(node_path) and not is_hidden(node):
+                    files.append(node_path)
+            else:
+                break
+        elif os.path.isfile(node_path) and not is_hidden(node_path):
             files.append(node_path)
     return files
 
 def valid_directories(directory):
     '''wrapper for glob.glob, enforces that output must be a valid directory'''
-    directories = [dir for dir in glob.glob(directory) if os.path.isdir(dir)]
+    directories = [defir for dir in glob.glob(directory) if os.path.isdir(dir)]
     directories.reverse #to use the newest version, in case we have foo-version
     return directories
 
 @exit_on_Usage
-def path_to_executable(name, directory=None):
+def path_to_executable(name, directories=None):
     """
     construct the path to the executable, search in order
     
@@ -704,12 +725,18 @@ def path_to_executable(name, directory=None):
         raise Usage("Could not find an executable with any of these names:",
                     ", ".join(name))
 
+    if type(directories) is list:
+       for d in directories:
+           try: path_to = path_to_executable(name, directories)
+           except Usage: continue 
+           return path_to
+
     #try specified directory
-    for directory in valid_directories(directory):
-        if directory is not None:
+    if directories is not None:
+        for directory in valid_directories(directories):
             full_path = os.path.join(directory, name)
             if os.path.exists(full_path):
-                if os.access(full_path, os.X_OK):
+                if objects.access(full_path, os.X_OK):
                     return full_path
     #try PATH
     try: PATH = os.environ['PATH']
@@ -721,8 +748,22 @@ def path_to_executable(name, directory=None):
         if os.path.exists(full_path):
             if os.access(full_path, os.X_OK):
                 return full_path
+            
+    # check if we're on Windows, and try a little harder
+    if platform.system() == 'Windows':
+        all_exes = itertools.ifilter(lambda f: f.endswith('exe'),
+                    itertools.chain(
+                        leaves(os.environ['PROGRAMFILES'], max_depth=2),
+                        leaves(os.environ['PROGRAMFILES(X86)'], max_depth=2)
+                    ))
+        namex = name + os.extsep + 'exe'
+        for exe in all_exes:
+            exename = os.path.split(exe)[1]
+            if (exename == name or exename == namex) and os.access(exe, os.X_OK):
+                return exe # success
+        
     #give up
-    raise Usage("Could not find executable", name)
+    raise Usage("Could not find executable ", name)
 
 def usage_info():
     return ' '.join(['Usage:', PROGRAM_NAME, '[OPTIONS]', 'FILE(S)'])
