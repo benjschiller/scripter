@@ -33,6 +33,13 @@ from decorator import decorator
 global PROGRAM_NAME
 PROGRAM_NAME = os.path.basename(sys.argv[0])
 
+class InvalidFileException(ValueError):
+    '''
+    Exception for files that do not return a valid FilenameParser object
+    '''
+    def __init__(self, arg=None):
+        super(InvalidFileException, self).__init__(arg)
+
 @decorator
 def exit_on_Usage(func, *args, **kargs):
     '''
@@ -166,7 +173,10 @@ class Environment(object):
                                 _iter_except(additional_sequence.pop,
                                              IndexError))
         for f in itertools.ifilter(self._is_valid_file, files):
-            self._sequence.append(filename_parser(f))
+            try:
+                self._sequence.append(filename_parser(f))
+            except InvalidFileException:
+                continue
         return
             
     def _check_if_dry_run(self):
