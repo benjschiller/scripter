@@ -148,7 +148,7 @@ class Environment(object):
         # Always update the sequence before getting it
         if self._is_first_time:
             if self._options.has_key('find'):
-                self._find_files()
+                self.find_files()
             self._update_sequence()
             self._is_first_time = False
         sequence = self._sequence
