@@ -124,7 +124,7 @@ class Environment(object):
         '''
         source_dir = self.get_source_dir()
         # Check if we need to find the files or if any were specified
-        if source_dir is not None:
+        if source_dir is None:
             raise Usage('Cannot use --find without specifying a source',
                         'directory')
         if self.is_debug():
@@ -132,7 +132,7 @@ class Environment(object):
             if self.allowed_extensions is not None:
                 print_debug('Valid file extensions are',
                             ' '.join(self.allowed_extensions))
-        filename_parser = get_filename_parser()
+        filename_parser = self.get_filename_parser()
         parsed_filenames = []
         leaves_in_source_dir = leaves(source_dir)
         for leaf in leaves_in_source_dir:
