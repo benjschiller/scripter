@@ -138,6 +138,7 @@ class Environment(object):
         for leaf in leaves_in_source_dir:
             if self._is_valid_file(leaf):
                 parsed_filenames.append(filename_parser(leaf))
+        self._sequence.extend(parsed_filenames)
         return parsed_filenames
 
     def get_sequence(self):
@@ -623,7 +624,8 @@ class FilenameParser(object):
         # Try to build target_dir/x/y/z from source_dir/x/y/z in input path
         # then resort to input_dir
         try:
-            source_dir_index = filename.split(os.sep).index(source_dir)
+            fn_parts = filename.split(os.sep)
+            source_dir_index = fn_parts.index(source_dir)
             self.output_dir = os.path.join(self.target_dir,
                                            *fn_parts[source_dir_index+1:-1])
         except ValueError:
