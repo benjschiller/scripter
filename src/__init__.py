@@ -19,6 +19,8 @@ try: import multiprocessing
 except ImportError: pass
 import getopt
 import sys
+try: import sysconfig
+except ImportError: pass
 import os
 import platform
 import glob
@@ -49,7 +51,7 @@ def exit_on_Usage(func, *args, **kargs):
     try:
         return func(*args, **kargs)
     except Usage, err:
-        print_debug(''.join([PROGRAM_NAME, ':']), str(err.msg))
+        print_debug('{!s}: {!s}'.format(PROGRAM_NAME, err.msg))
         if locals().has_key('options'):
             if options.has_key('h') or options.has_key('help'): return 2
         print_debug("for help use --help")
@@ -85,6 +87,7 @@ class Environment(object):
         self._options = self.parse_argv()
         self._set_verbosity()
         self._exit_if_needed()
+        
         self._set_initial_num_cpus()
         self._check_if_dry_run()
         return
@@ -106,6 +109,8 @@ class Environment(object):
 
     def set_target_dir(self, target_dir):
         self.target_dir = target_dir
+        if self.is_debug():
+            print_debug('Setting Environment target_dir to {!s}'.format(target_dir))
         return
         
     def get_source_dir(self):
@@ -113,6 +118,8 @@ class Environment(object):
 
     def set_source_dir(self, source_dir):
         self.source_dir = source_dir
+        if self.is_debug():
+            print_debug('Setting Environment source_dir to {!s}'.format(source_dir))
         return
 
     @exit_on_Usage
@@ -137,7 +144,11 @@ class Environment(object):
         leaves_in_source_dir = leaves(source_dir)
         for leaf in leaves_in_source_dir:
             if self._is_valid_file(leaf):
-                parsed_filenames.append(filename_parser(leaf))
+                try:
+                    appendable = filename_parser(leaf)
+                    parsed_filenames.append(appendable)
+                except InvalidFileException:
+                    pass
         self._sequence.extend(parsed_filenames)
         return parsed_filenames
 
@@ -177,7 +188,7 @@ class Environment(object):
             try:
                 self._sequence.append(filename_parser(f))
             except InvalidFileException:
-                continue
+                pass
         return
             
     def _check_if_dry_run(self):
@@ -412,14 +423,14 @@ class Environment(object):
         
         if with_args:
             if self.is_debug():
-                print_debug('Using', str(self._filename_parser.__name__),
-                            'with kwargs',
-                            str(self.get_fp_kwargs()))
+                print_debug('Using {!s} with kwargs {!s}'.format(
+                                self._filename_parser.__name__,
+                                self.get_fp_kwargs()))
             return partial(self._filename_parser, **self.get_fp_kwargs())
         else:
             if self.is_debug():
-                print_debug('Using', str(self._filename_parser.__name__),
-                            'without kwargs')
+                print_debug('Using {!s} without kwargs'.format(
+                                            self._filename_parser.__name__))
             return self._filename_parser
 
     def set_num_cpus(self, num):
@@ -552,8 +563,8 @@ class Environment(object):
             results = [p.apply_async(action, (item,), kwargs) for
                        item in sequence]
             stdouts = (result.get() for result in results)
-            stdouts_good = itertools.ifilter(lambda x: x is not None, stdouts)
-            if not self.is_silent() and stdouts is not None:
+            stdouts_good = filter(lambda x: type(x) is str, stdouts)
+            if not self.is_silent() and stdouts_good is not None:
                 print >>sys.stdout, os.linesep.join(stdouts_good)
                 
         return self.execute_next_script()
@@ -715,7 +726,7 @@ def valid_directories(directory):
     return directories
 
 @exit_on_Usage
-def path_to_executable(name, directories=None):
+def path_to_executable(name, directories=None, max_depth=2):
     """
     construct the path to the executable, search in order
     
@@ -728,28 +739,39 @@ def path_to_executable(name, directories=None):
     *we reverse the order so that we will usually get the newest version
     """
     # if name is a list, iterate over it to find exe and catch errors
+    # bug workaround
     if type(name) is list:
         for try_name in name:
-            try: path_to = path_to_executable(try_name)
-            except Usage: continue
+            try:
+                path_to = _path_to_executable(try_name,
+                                              directories=directories,
+                                              max_depth=max_depth)
+            except StandardError: continue
             return path_to
-    if type(name) is list:
         raise Usage("Could not find an executable with any of these names:",
                     ", ".join(name))
-
-    if type(directories) is list:
-       for d in directories:
-           try: path_to = path_to_executable(name, directories)
-           except Usage: continue 
-           return path_to
+    else:
+            try: path_to = _path_to_executable(try_name,
+                                               directories=directories,
+                                               max_depth=max_depth)
+            except StandardError:
+                raise Usage("Could not find executable " + name)
+            return path_to
+        
+def _path_to_executable(name, directories=None, max_depth=2):
+    using_windows = platform.system() == 'Windows'
 
     #try specified directory
     if directories is not None:
-        for directory in valid_directories(directories):
-            full_path = os.path.join(directory, name)
-            if os.path.exists(full_path):
-                if objects.access(full_path, os.X_OK):
+        if type(directories) is not list: d = [directories]
+        for directories in d:
+            for directory in valid_directories(directories):
+                full_path = os.path.join(directory, name)
+                if is_valid_executable(full_path):
                     return full_path
+                if using_windows and is_valid_executable(full_path + '.exe'):
+                    return full_path + '.exe'
+            
     #try PATH
     try: PATH = os.environ['PATH']
     except NameError:
@@ -757,25 +779,48 @@ def path_to_executable(name, directories=None):
         except NameError: raise Usage("Could not determine PATH")
     for p in PATH.split(os.pathsep):
         full_path = os.path.join(p, name)
-        if os.path.exists(full_path):
-            if os.access(full_path, os.X_OK):
-                return full_path
+        if is_valid_executable(full_path):
+            return full_path
+        if using_windows and is_valid_executable(full_path + '.exe'):
+            return full_path + '.exe'
             
+    #try python scripts
+    try:
+        script_path = sysconfig.get_path('scripts')
+        full_path = os.path.join(script, name)
+        if is_valid_executable(full_path):
+            return full_path
+        if using_windows and is_valid_executable(full_path + '.exe'):
+            return full_path + '.exe'
+    except NameError, AttributeError: pass
+        
     # check if we're on Windows, and try a little harder
-    if platform.system() == 'Windows':
+    if using_windows:
         all_exes = itertools.ifilter(lambda f: f.endswith('exe'),
                     itertools.chain(
-                        leaves(os.environ['PROGRAMFILES'], max_depth=2),
-                        leaves(os.environ['PROGRAMFILES(X86)'], max_depth=2)
+                                    leaves(os.environ['PROGRAMFILES'],
+                                           max_depth=max_depth),
+                                    leaves(os.environ['PROGRAMFILES(X86)'],
+                                           max_depth=max_depth)
                     ))
-        namex = name + os.extsep + 'exe'
+        namex = name + '.exe'
         for exe in all_exes:
             exename = os.path.split(exe)[1]
-            if (exename == name or exename == namex) and os.access(exe, os.X_OK):
-                return exe # success
-        
-    #give up
-    raise Usage("Could not find executable ", name)
+            if (exename == name or exename == namex) and \
+                is_valid_executable(exe):
+                    return exe # success
+    
+    # give up
+    raise StandardError
+
+def is_valid_executable(filename):
+    """
+    checks if a filename is a valid executable
+    """
+    if os.path.exists(filename):
+        if os.access(filename, os.X_OK):
+            return filename
+    return False
 
 def usage_info():
     return ' '.join(['Usage:', PROGRAM_NAME, '[OPTIONS]', 'FILE(S)'])
