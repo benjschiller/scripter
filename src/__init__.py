@@ -51,7 +51,7 @@ def exit_on_Usage(func, *args, **kargs):
     try:
         return func(*args, **kargs)
     except Usage, err:
-        print_debug('{!s}: {!s}'.format(PROGRAM_NAME, err.msg))
+        print_debug('{0!s}: {1!s}'.format(PROGRAM_NAME, err.msg))
         if locals().has_key('options'):
             if options.has_key('h') or options.has_key('help'): return 2
         print_debug("for help use --help")
@@ -110,7 +110,7 @@ class Environment(object):
     def set_target_dir(self, target_dir):
         self.target_dir = target_dir
         if self.is_debug():
-            print_debug('Setting Environment target_dir to {!s}'.format(target_dir))
+            print_debug('Setting Environment target_dir to {0!s}'.format(target_dir))
         return
         
     def get_source_dir(self):
@@ -119,7 +119,7 @@ class Environment(object):
     def set_source_dir(self, source_dir):
         self.source_dir = source_dir
         if self.is_debug():
-            print_debug('Setting Environment source_dir to {!s}'.format(source_dir))
+            print_debug('Setting Environment source_dir to {0!s}'.format(source_dir))
         return
 
     @exit_on_Usage
@@ -158,12 +158,15 @@ class Environment(object):
         '''
         options = self.get_options()
         # Always update the sequence before getting it
+        find = self._options.has_key('find')
         if self._is_first_time:
-            if self._options.has_key('find'):
-                self.find_files()
+            if find: self.find_files()
             self._update_sequence()
             self._is_first_time = False
         sequence = self._sequence
+        if len(sequence) == 0:
+            if not find: # find anyway
+                self.find_files()
         return sequence
 
     def _update_sequence(self, additional_sequence=[]):
@@ -423,13 +426,13 @@ class Environment(object):
         
         if with_args:
             if self.is_debug():
-                print_debug('Using {!s} with kwargs {!s}'.format(
+                print_debug('Using {0!s} with kwargs {1!s}'.format(
                                 self._filename_parser.__name__,
                                 self.get_fp_kwargs()))
             return partial(self._filename_parser, **self.get_fp_kwargs())
         else:
             if self.is_debug():
-                print_debug('Using {!s} without kwargs'.format(
+                print_debug('Using {0!s} without kwargs'.format(
                                             self._filename_parser.__name__))
             return self._filename_parser
 
@@ -523,7 +526,7 @@ class Environment(object):
                 return False
     
     @exit_on_Usage 
-    def do_action(self, action):
+    def do_action(self, action, stay_open=False):
         '''
         executes an action
         
@@ -531,7 +534,7 @@ class Environment(object):
         '''
         sequence = list(self.get_sequence())
         if len(sequence) == 0:
-            raise Usage('No input files specified. Nothing to do.')
+            raise Usage('No input files specified or found. Nothing to do.')
         if not self._allow_action:
             print_debug('Test run. Nothing done.')
             print_debug('I would have acted on these files:',
@@ -545,6 +548,10 @@ class Environment(object):
     
         used_cpus = min([self.get_num_cpus(), max_cpus])
     
+        # Create output directory if it doesn't exist
+        for item in sequence:
+            item.check_output_dir(item.output_dir)
+        
         if used_cpus == 1:
             if self.is_debug(): print_debug('multiprocessing disabled')
             for item in sequence:
@@ -566,25 +573,23 @@ class Environment(object):
             stdouts_good = filter(lambda x: type(x) is str, stdouts)
             if not self.is_silent() and stdouts_good is not None:
                 print >>sys.stdout, os.linesep.join(stdouts_good)
-                
-        return self.execute_next_script()
+
+        if not stay_open:
+            sys.exit(0)
+        elif self.next_script is not None:
+            return self.execute_next_script()
     
     def execute_next_script(self):
         '''
         execute the next script
-        
-        if there isn't one, then die
         '''
-        if self.next_script is not None:
-            if debug: print_debug('Launching the next script', NEXT_SCRIPT)
-            # always proceed with --find
-            next_script_args = ["--find"]
-            # pass along verbosity level
-            for verbosity in self.verbosity_levels:
-                exec(''.join(["next_script_args.append('", verbosity, "')"]))
-            os.execlp(self.next_script, "--find")
-        else:
-            sys.exit(0)
+        if debug: print_debug('Launching the next script', self.next_script)
+        # always proceed with --find
+        next_script_args = ["--find"]
+        # pass along verbosity level
+        for verbosity in self.verbosity_levels:
+            exec(''.join(["next_script_args.append('", verbosity, "')"]))
+        os.execlp(self.next_script, "--find")
     
 def _quote(s):
     return ''.join(["'", s ,"'"])
@@ -643,7 +648,6 @@ class FilenameParser(object):
                 self.output_dir = self.target_dir
        
         if debug: print_debug('Using', self.output_dir, 'as output_dir')
-        self.check_output_dir(self.output_dir)
 
         self.protoname = os.path.splitext(
                             os.path.basename(self.input_file))[0]
@@ -721,7 +725,7 @@ def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_files = True,
 
 def valid_directories(directory):
     '''wrapper for glob.glob, enforces that output must be a valid directory'''
-    directories = [defir for dir in glob.glob(directory) if os.path.isdir(dir)]
+    directories = [dir for dir in glob.glob(directory) if os.path.isdir(dir)]
     directories.reverse #to use the newest version, in case we have foo-version
     return directories
 
@@ -751,21 +755,21 @@ def path_to_executable(name, directories=None, max_depth=2):
         raise Usage("Could not find an executable with any of these names:",
                     ", ".join(name))
     else:
-            try: path_to = _path_to_executable(try_name,
-                                               directories=directories,
-                                               max_depth=max_depth)
-            except StandardError:
-                raise Usage("Could not find executable " + name)
-            return path_to
+        try: path_to = _path_to_executable(name,
+                                           directories=directories,
+                                           max_depth=max_depth)
+        except StandardError:
+            raise Usage("Could not find executable " + name)
+        return path_to
         
 def _path_to_executable(name, directories=None, max_depth=2):
     using_windows = platform.system() == 'Windows'
 
     #try specified directory
     if directories is not None:
-        if type(directories) is not list: d = [directories]
-        for directories in d:
-            for directory in valid_directories(directories):
+        if type(directories) is not list: directories = [directories]
+        for d in directories:
+            for directory in valid_directories(d):
                 full_path = os.path.join(directory, name)
                 if is_valid_executable(full_path):
                     return full_path
