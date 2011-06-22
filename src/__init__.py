@@ -596,20 +596,21 @@ def _quote(s):
 
 class Usage(Exception):
     def __init__(self, *args):
-        self.msg = ''.join(args)
+        self.msg = ''.join(map(str(args)))
 
     def __str__(self):
         return self.msg
 
 def print_debug(*args):
-    statement = ' '.join(args)
+    statement = ' '.join(map(str, args))
     print >>sys.stderr, statement
 
 def assert_path(path):
     '''if path does not exist, raise IOError'''
     if path is None: raise IOError('NoneType is not a valid path')
     if os.path.exists(path): return True
-    else: raise IOError(' '.join(['File or directory', path, 'not found']))
+    else:
+        raise IOError(errno.ENOENT, os.strerror(errno.ENOENT), path)
 
 class FilenameParser(object):
     @exit_on_Usage
