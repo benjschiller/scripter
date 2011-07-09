@@ -596,7 +596,7 @@ def _quote(s):
 
 class Usage(Exception):
     def __init__(self, *args):
-        self.msg = ''.join(map(str(args)))
+        self.msg = ''.join(map(str, args))
 
     def __str__(self):
         return self.msg
