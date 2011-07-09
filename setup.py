@@ -22,10 +22,11 @@ def main():
 		sys.stderr.write("CRITICAL: Python version must greater than or equal to 2.4! python 2.6.4 is recommended!\n")
 		sys.exit(1)
 	setup(name='scripter',
-	      version='2.0.4',
+	      version='2.0.5',
 	      description='Intended for automation of tasks on multicore computers',
 	      author='Benjamin Schiller',
 	      author_email='benjamin.schiller@ucsf.edu',
+	      install_requires = ['decorator'],
 	      packages = ['scripter'],
 	      package_dir = {'scripter': 'src' + os.sep},
 	      )
