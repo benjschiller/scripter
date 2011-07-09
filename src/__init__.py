@@ -132,7 +132,7 @@ class Environment(object):
         source_dir = self.get_source_dir()
         # Check if we need to find the files or if any were specified
         if source_dir is None:
-            raise Usage('Cannot use --find without specifying a source',
+            raise Usage('Cannot use --find without specifying a source '
                         'directory')
         if self.is_debug():
             print_debug('Searching for valid files')
