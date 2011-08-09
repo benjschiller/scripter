@@ -1,23 +1,7 @@
 #!/usr/bin/env python
-'''
-Common Options:
--h, --help          display this menu
--v, --version       give the current package version
---verbose           be verbose
---debug             be even more verbose
---quiet (default)   do not be verbose
---silent            do not output anything except errors
-
---find                      (find files automatically)
---target=foo                output to directory foo
--p[#], --num-cpus=[#]       Use at most [#] cpus
--r, --recursive                 continue with the next script, if available
-'''
-# See `Environment.__init__' definition #
-# for valid flags            #
-try: import multiprocessing
-except ImportError: pass
-import getopt
+# See `Environment.__init__' definition for valid flags #
+import multiprocessing
+import argparse
 import sys
 try: import sysconfig
 except ImportError: pass
@@ -26,14 +10,40 @@ import platform
 import glob
 import signal
 import subprocess
+import time
+import getpass
+import pprint
 import functools
 import itertools
 from functools import partial
 import decorator
 from decorator import decorator
-
+from errno import ENOENT
+import logging
 global PROGRAM_NAME
 PROGRAM_NAME = os.path.basename(sys.argv[0])
+from pkg_resources import get_distribution
+VERSION = get_distribution('scripter').version
+__version__ = VERSION
+
+# set up the module-level logger
+LOGGER = multiprocessing.log_to_stderr()
+LOGGER.setLevel(logging.CRITICAL)
+
+debug = LOGGER.debug
+info = LOGGER.info
+warning = LOGGER.warning
+error = LOGGER.error
+critical = LOGGER.critical
+log = LOGGER.log
+exception = LOGGER.exception
+
+def pformat_list(L):
+    """
+    Takes a list and turns each item into a str
+    then returns the pretty-printed version of that list
+    """
+    return pprint.pformat([str(itm) for itm in L])
 
 class InvalidFileException(ValueError):
     '''
@@ -51,10 +61,8 @@ def exit_on_Usage(func, *args, **kargs):
     try:
         return func(*args, **kargs)
     except Usage, err:
-        print_debug('{0!s}: {1!s}'.format(PROGRAM_NAME, err.msg))
-        if locals().has_key('options'):
-            if options.has_key('h') or options.has_key('help'): return 2
-        print_debug("for help use --help")
+        sys.stderr.write('%s: %s\n' % (PROGRAM_NAME, err.msg))
+        sys.stderr.write("for help use --help\n")
         sys.exit(2)
 
 class Environment(object):
@@ -63,352 +71,117 @@ class Environment(object):
     
     provides an execution environment for jobs
     '''
-    
-    def __init__(self, short_opts='', long_opts=[], doc='',
-                 version=''):
+    def __init__(self, doc=None, version=''):
         self._script_version = version
-        self._script_doc = doc
         self._unprocessed_sequence = []
         self._sequence = []
         self._script_kwargs = {}
         self._filename_parser = FilenameParser
-        self._allow_action  = True
-        self.source_dir = None
-        self.target_dir = None
+        self._num_cpus = None
+        self._config_reader = None
+        self._config_writer = None
         self.allowed_extensions = None
         self.next_script = None
         self._is_first_time = True
-        self.short_opts = "hvrp:" + short_opts
-        self.verbosity_levels = ['debug', 'verbose', 'quiet', 'silent']
-        self.long_opts = ["help", "version", "find", "target=", 
-                          "num-cpus=", "recursive", "no-action"]
-        self.long_opts.extend(self.verbosity_levels)
-        self.long_opts.extend(long_opts)
-        self._options = self.parse_argv()
-        self._set_verbosity()
-        self._exit_if_needed()
-        
-        self._set_initial_num_cpus()
-        self._check_if_dry_run()
+        parser = argparse.ArgumentParser(description=doc)
+        self.argument_parser = parser
+        version_str = '%(prog)s {0!s} (scripter {1!s})'.format(version,
+                                                               __version__)
+        parser.add_argument('-v', '--version',
+                            help='show version info and exit',
+                            action='version', version=version_str)
+        parser.add_argument('-p', '--num-cpus', nargs='?',
+                            help='specify the number of maximum # CPUs to use',
+                            default=multiprocessing.cpu_count())
+        vgroup = parser.add_mutually_exclusive_group()
+        vgroup.add_argument('--debug', help='Sets logging level to DEBUG',
+                           dest='logging_level', action='store_const',
+                           const=logging.DEBUG)
+        vgroup.add_argument('--info', default=logging.INFO,
+                           help='Sets logging level to INFO [default]',
+                           dest='logging_level', action='store_const',
+                           const=logging.INFO)
+        vgroup.add_argument('--quiet', help='Sets logging level to WARNING',
+                           dest='logging_level', action='store_const',
+                           const=logging.WARNING)
+        vgroup.add_argument('--silent', help='Sets logging level to ERROR',
+                           dest='logging_level', action='store_const',
+                           const=logging.ERROR)
+        parser.set_defaults(logging_level=logging.INFO)
+        parser.add_argument('--target', dest='target', nargs='?')
+        parser.add_argument('--no-target', action='store_true',
+                            help='Write new files in the current directory / do not preserve directory structure')
+        parser.add_argument('--recursive', '-r',
+                            help='Recurse through any directories listed looking for valid files')
+        parser.add_argument('--no-action', '--do-nothing', '--dry-run',
+                            dest='allow_action', default=True,
+                            action='store_false', help="Don't act on files")
+        parser.add_argument('--config', help='Use configuration in file foo')
+        parser.add_argument('files', nargs='+',
+                            help='A list of files to act upon (wildcards ok)')
         return
 
-    def _check_target_dir(self):
-        '''
-        check if user specified a target_dir
-        '''
-        if options.has_key('target'):
-            if len(options['target'].strip()) is not 0:
-                if self._target_dir is not None and verbose:
-                    print_debug('Overriding target dir', self._target_dir,
-                                'with user-specified output directory',
-                                options['target'])
-                self._target_dir = options['target']
+    def set_config_reader(self, reader):
+        """
+        will be called as reader(vars(parser.parse_args())['config'])
+        """
+        self._config_reader = reader
 
-    def get_target_dir(self):
-        return self.target_dir
+    def set_config_writer(self, writer):
+        """
+        will be called as writer(**parser.parse_args())
+        """
+        self._config_writer = writer
 
-    def set_target_dir(self, target_dir):
-        self.target_dir = target_dir
-        if self.is_debug():
-            print_debug('Setting Environment target_dir to {0!s}'.format(target_dir))
-        return
-        
-    def get_source_dir(self):
-        return self.source_dir
-
-    def set_source_dir(self, source_dir):
-        self.source_dir = source_dir
-        if self.is_debug():
-            print_debug('Setting Environment source_dir to {0!s}'.format(source_dir))
-        return
-
-    @exit_on_Usage
-    def find_files(self):
-        '''
-        if --find, find any files that we can act upon
-        uses the source_dir to find files to act upon
-        returns a list of filename_parser instances with those files
-        '''
-        source_dir = self.get_source_dir()
-        # Check if we need to find the files or if any were specified
-        if source_dir is None:
-            raise Usage('Cannot use --find without specifying a source '
-                        'directory')
-        if self.is_debug():
-            print_debug('Searching for valid files')
-            if self.allowed_extensions is not None:
-                print_debug('Valid file extensions are',
-                            ' '.join(self.allowed_extensions))
-        filename_parser = self.get_filename_parser()
-        parsed_filenames = []
-        leaves_in_source_dir = leaves(source_dir)
-        for leaf in leaves_in_source_dir:
-            if self._is_valid_file(leaf):
-                try:
-                    appendable = filename_parser(leaf)
-                    parsed_filenames.append(appendable)
-                except InvalidFileException:
-                    pass
-        self._sequence.extend(parsed_filenames)
-        return parsed_filenames
-
-    def get_sequence(self):
+    def get_sequence(self, **kwargs):
         '''
         returns the sequence of FilenameParser objects for action
+        
+        Running this more than once will not do anything
         '''
-        options = self.get_options()
-        # Always update the sequence before getting it
-        find = self._options.has_key('find')
         if self._is_first_time:
-            if find: self.find_files()
-            self._update_sequence()
+            self._update_sequence(**kwargs)
             self._is_first_time = False
         sequence = self._sequence
-        if len(sequence) == 0:
-            if not find: # find anyway
-                self.find_files()
         return sequence
 
-    def _update_sequence(self, additional_sequence=[]):
+    def _update_sequence(self, files=[], recursive=False, **kwargs):
         '''
-        updates _sequence with additional_sequence and
-        _unprocessed_sequence (if applicable)
+        updates _sequence with files specified at command line (wildcards ok)
         '''
-        if self.is_debug():
-            print_debug('Updating sequence...')
-        if self.is_debug():
-            print_debug('Checking for user-specified files')
-            if self.allowed_extensions is not None:
-                print_debug('Valid file extensions are',
-                            ' '.join(self.allowed_extensions))
-        filename_parser = self.get_filename_parser()
+        debug('Updating sequence of files...')
+        debug('Checking for user-specified files...')
+        # process wildcards as needed
+        unprocessed_files = []
+        for item in _iter_except(files.pop, IndexError):
+            files = glob.glob(item)
+            if len(files) == 1: unprocessed_files.append(files[0])
+            elif len(files) > 1: unprocessed_files.extend(files)
+        if self.allowed_extensions is not None:
+            debug('Valid file extensions are %s',
+                  ' '.join(self.allowed_extensions))
+        if len(unprocessed_files) > 0:
+            debug('Found the following files:')
+            debug(pformat_list(unprocessed_files))
+        filename_parser = self.get_filename_parser(**kwargs)
         # note, filenames get processed backward
-        files = itertools.chain(_iter_except(self._unprocessed_sequence.pop,
-                                             IndexError),
-                                _iter_except(additional_sequence.pop,
-                                             IndexError))
-        for f in itertools.ifilter(self._is_valid_file, files):
-            try:
-                self._sequence.append(filename_parser(f))
-            except InvalidFileException:
-                pass
-        return
-            
-    def _check_if_dry_run(self):
-        '''check if this is a test run (no action)'''
-        options = self._options
-        self._allow_action = not options.has_key('no-action')
-        return
-
-    @exit_on_Usage
-    def _exit_if_needed(self):
-        '''
-        exits if user requested help or version
-        ''' 
-        options = self._options
-        # check for help
-        if options.has_key('h') or options.has_key('help'):
-            raise Usage(os.linesep.join([PROGRAM_NAME, __doc__,
-                                         self._script_doc]))
-        # check for version info
-        elif options.has_key('v') or options.has_key('version'):
-            raise Usage(PROGRAM_NAME, ': version ', self._script_version)
-        return
-    
-    def _set_initial_num_cpus(self):
-        '''
-        set the number of cpus that we're going to use 
-        '''
-        # try to set number of cpus
-        options = self._options
-        num_cpus = 1
-        try:
-            if 'cpu_count' in dir(multiprocessing):
-                num_cpus = multiprocessing.cpu_count()
-        except NameError: pass
-        # Check num-cpus/p
-        if options.has_key('p'):
-            num_cpus = int(options['p'])
-        elif options.has_key('num-cpus'):
-            num_cpus = int(options['num-cpus'])
-        self._num_cpus = num_cpus
+        files = itertools.chain(_iter_except(unprocessed_files.pop, IndexError))
+        sequence = self._sequence
+        for f in files:
+            if recursive and self._is_valid_dir(f):
+                debug('Searching for valid files in f')
+                for leaf in leaves(f):
+                    if self._is_valid_file(leaf):
+                        try:
+                            appendable = filename_parser(leaf)
+                            sequence.append(appendable)
+                        except InvalidFileException:
+                            pass
+            elif self._is_valid_file(f):
+                try: sequence.append(filename_parser(f))
+                except InvalidFileException: pass
         return
         
-    def get_options(self):
-        '''
-        returns a dictionary containing whose keys are the
-        options as interpreted by parse_argv()
-        and whose values are the corresponding values (or None)       
-        '''
-        return self._options
-
-    def parse_any_opts(self, any_opts, short_to_long, update_script_kwargs=True,
-                       replacement_value=True):
-        """
-        behaves like parse_long_opts
-        
-        but you must also provide a dictionary short_to_long which specifies
-        the long variable names correspond to the single letter options
-        i.e. {'a': 'apple', 'b': 'brain'}
-        
-        parse_any_opts will enforce "-" -> "_" name replacement
-        and will also strip '=' or ':' from the end of names
-        
-        if a key is not in short_to_long, then we will leave it unchanged
-        parse_short_opts(require_long = False) is equivalent to
-        parse_any_opts()
-        """
-        return self.parse_short_opts(short_opts, short_to_long,
-                                     require_long=False,
-                                     
-                                     update_script_kwargs=update_script_kwargs,
-                                     replacement_value = replacement_value)
-
-    def parse_short_opts(self, short_opts, short_to_long, require_long=True,
-                         update_script_kwargs=True, replacement_value=True):
-        """
-        parse_short_opts behaves like parse_long_opts
-        
-        but you must also provide a dictionary short_to_long which specifies
-        the long variable names correspond to the single letter options
-        i.e. {'a': 'apple', 'b': 'brain'}
-        
-        parse_short_opts will enforce "-" -> "_" name replacement
-        and will also strip '=' or ':' from the end of names
-        
-        if require_long = True, then any item in short_opts must be present
-        as a key in short_to_long. if require_long is False, then we will leave
-        keys unchanged when they are not present.
-        parse_short_opts(require_long = False) is equivalent to
-        parse_any_opts()
-        """
-        kwargs = self.parse_long_opts(short_opts, update_script_kwargs=False,
-                                      replacement_value=replacement_value)
-        real_kwargs = {}
-        for k, v in kwargs:
-            if require_long:
-                option = short_to_long[k]
-            else:
-                if short_to_long.has_key(k): option = short_to_long[k]
-                else: option = k
-            pyoption = "_".join(option.split("-")).rstrip(':=')
-            real_kwargs[option] = v
-        if update_script_kwargs: self.update_script_kwargs(real_kwargs)
-        return real_kwargs
-
-    def parse_long_opts(self, long_opts, update_script_kwargs=True,
-                        replacement_value = True):
-        """
-        parse_long_opts behaves like parse_boolean_opts, except that it assigns
-        the argument for option to the dictionary of keywords,
-        i.e --foo=boo --> {'foo': 'boo'}
-
-        parse_long_opts will enforce "-" -> "_" name replacement
-        and will also strip '=' or ':' from the end of names
-        
-        the exception is that '' is translated to True
-        so parse_long_opts can still handle boolean options)
-        You may override what value is used instead of True by setting
-        replacement_value to something else
-        
-        by default, this method will also add the dictionary to the Environment
-        instance's script_kwargs using update_script_kwargs
-        this behavior can be disabled with update_script_kwargs = False
-        
-        e.g. if self.get_options() = {'help': '', 'flag': 'red'}, then
-        >>> parse_boolean_opts(['flag', 'help'])
-        {'flag': 'red', 'help': None}
-        """
-        kwargs = {}
-        options = self.get_options()
-        for option in boolean_opts:
-            pyoption = "_".join(option.split("-")).rstrip(':=')
-            if options[option] == '':
-                kwargs[pyoption] = replacement_value
-            else:
-                kwargs[pyoption] = option[option]
-        if update_script_kwargs: self.update_script_kwargs(kwargs)
-        return kwargs
-    
-    def parse_boolean_opts(self, boolean_opts, update_script_kwargs=True):
-        '''
-        parse_boolean_opts takes a list of boolean options and
-        returns a dictionary with whether those options were present in argv
-        (changes "-" to "_" in variable names where appropriate)
-        
-        by default, this method will also add the dictionary to the Environment
-        instance's script_kwargs using update_script_kwargs
-        this behavior can be disabled with update_script_kwargs = False
-        
-        e.g. if self.get_options() = {'help': None}, then
-        >>> parse_boolean_opts(['flag', 'help'])
-        {'flag': True, 'help': False}
-        '''
-        kwargs = {}
-        options = self.get_options()
-        for option in boolean_opts:
-            pyoption = "_".join(option.split("-")).rstrip(':=')
-            kwargs[pyoption] = options.has_key(option)
-        if update_script_kwargs: self.update_script_kwargs(kwargs)
-        return kwargs
-
-    @exit_on_Usage
-    def parse_argv(self):
-        '''
-        launches getopt.gnu_getopt to validate options from sys.argv
-        also adds any explicitly mentioned files to sequence, if needed
-        
-        uses self.short_opts and self.long_opts
-        '''
-        try:
-            opts, args = getopt.gnu_getopt(sys.argv[1:],
-                                           self.short_opts, self.long_opts)
-        except getopt.error, msg:
-            raise Usage(str(msg))
-        options = {}
-        for k, v in opts:
-            options[k.lstrip('-')] = v # with -'s stripped
-        # parse filenames too
-        self._unprocessed_sequence.extend(args)
-        return options
-
-    @exit_on_Usage
-    def _set_verbosity(self):
-        options = self._options
-        verbosity_levels = self.verbosity_levels
-        # check verbosity
-        for verbosity in verbosity_levels:
-            setattr(self, '_' + verbosity, options.has_key(verbosity))
-
-        if sum([getattr(self, '_' + verbosity) for
-                verbosity in verbosity_levels]) > 1:
-            raise Usage('can only specify at most one of ', 
-                        ', '.join(['--' + x for x in verbosity_levels]))
-        # debug implies verbose
-        if self._debug: self._verbose = True
-        return
-
-    def get_verbose_kwargs(self):
-        verbose_kwargs = {'silent': self.is_silent(),
-                          'quiet': self.is_quiet(),
-                          'verbose': self.is_verbose(),
-                          'debug': self.is_debug()}
-        return verbose_kwargs
-
-    def disable_action(self):
-        '''
-        disables do_action (execution will return None)
-        '''
-        self._allow_action = False
-        return
-        
-    def enable_action(self):
-        '''
-        enables do_action
-        '''
-        self._allow_action = True
-        return
-
     def set_filename_parser(self, filename_parser):
         '''
         use the provided filename parser instead of the default one
@@ -416,102 +189,48 @@ class Environment(object):
         self._filename_parser = filename_parser
         return
     
-    def get_filename_parser(self, with_args=True):
+    def get_filename_parser(self, **kwargs):
         '''
         returns the class being used as the filename parser
         
         if with_args is True, then partial is used to apply arguments as
         appropriate
         '''
-        
-        if with_args:
-            if self.is_debug():
-                print_debug('Using {0!s} with kwargs {1!s}'.format(
-                                self._filename_parser.__name__,
-                                self.get_fp_kwargs()))
-            return partial(self._filename_parser, **self.get_fp_kwargs())
+        if kwargs is not None:
+            debug('Using %s with the following kwargs:',
+                  self._filename_parser.__name__)
+            debug('\n%s', pprint.pformat(kwargs))
+            return partial(self._filename_parser, **kwargs)
         else:
-            if self.is_debug():
-                print_debug('Using {0!s} without kwargs'.format(
-                                            self._filename_parser.__name__))
+            debug('Using %s', self._filename_parser.__name__)
             return self._filename_parser
 
-    def set_num_cpus(self, num):
-        '''
-        return the number of cpus to be used
-        if num is not None, set the number of cpus to be used before returning
-        '''
+    def override_num_cpus(self, num):
+        """
+        override the number of processes we're going to start
+        """
         self._num_cpus = num
         return
-    
-    def get_num_cpus(self):
-        '''
-        return the number of cpus to be used
-        if num is not None, set the number of cpus to be used before returning
-        '''
-        return self._num_cpus
-
-    def is_silent(self):
-        return self._silent
-    
-    def is_quiet(self):
-        return self._verbose
-
-    def is_verbose(self):
-        return self._verbose
-
-    def is_debug(self):
-        return self._debug
-
-    def get_action_kwargs(self):
-        '''
-        get the kwargs (a dictionary) for action
-        '''
-        kwargs_items = itertools.chain(self.get_verbose_kwargs().iteritems(),
-                                       self.get_script_kwargs().iteritems())
-        return dict((item for item in kwargs_items))
-
-    def add_script_kwarg(self, key, value, override=True):
-        '''
-        update the script-level kwargs with provided dictionary
-        with key, value pair
-        (if override=False, do not override existing value if key exists)
-        '''
-        if override:
-            self._script_kwargs.update({key: value})
-        else:
-            if not self._kwargs.has_key(key):
-                self._kwargs[key] = value
-
-    def update_script_kwargs(self, update_dict):
-        '''
-        update the script-level kwargs with provided dictionary
-        used by both action and filename parser
-        '''
-        self._script_kwargs.update(update_dict)
-
-    def get_script_kwargs(self):
-        return self._script_kwargs
-
-    def get_fp_kwargs(self):
-        '''
-        get the kwargs (a dictionary) for the filename parser
-        '''
-        source_dir_item = ('source_dir', self.get_source_dir())
-        target_dir_item = ('target_dir', self.get_target_dir())
-        kwargs_items = itertools.chain(self.get_verbose_kwargs().iteritems(),
-                                       self.get_script_kwargs().iteritems(),
-                                       (target_dir_item, source_dir_item))
-        return dict((item for item in kwargs_items))
    
+    @staticmethod 
+    def _is_valid_dir(f):
+        '''
+        checks if a directory is valid
+        '''
+        if not access(setup_file, os.FOK + os.R_OK + os.X_OK):
+            return False
+        else:
+            return os.path.isdir(f)
+        
     def _is_valid_file(self, f):
-        '''checks if a file is valid for processing'''
+        '''
+        checks if a file is valid for processing
+        '''
         if not os.path.isfile(f):
-            if self.is_debug():
-                print_debug('Skipping', _quote(f), '. It is not a file.')
+            debug('Skipping %s. It is not a file.', _quote(f))
             return False
         elif f.startswith('.'):
-            print_debug('Skipping hidden file', _quote(f))
+            debug('Skipping hidden file %s', _quote(f))
             return False
         elif self.allowed_extensions is None:
             return True
@@ -520,9 +239,8 @@ class Environment(object):
             if file_ext in self.allowed_extensions:
                 return True
             else:
-                if self.is_debug():
-                    print_debug('Skipping', _quote(f), 'because file',
-                                'does not have a valid file extension')
+                debug('Skipping %s because file does not have a valid file '
+                      'extension', _quote(f))
                 return False
     
     @exit_on_Usage 
@@ -532,63 +250,71 @@ class Environment(object):
         
         actions should be functions that at least take FilenameParser objects
         '''
-        sequence = list(self.get_sequence())
+        args = self.argument_parser.parse_args()
+        context = vars(args)
+        # read config if user supplies method
+        if context['config'] is not None:
+            if self._config_reader is None: raise Error ### FINISH
+            cfg_opts = self._config_reader(context['config'])
+            context.update(cfg_opts)
+        
+        # write config if user supplies method
+        if self._config_writer is not None:    
+            self._config_writer(context)
+        
+        self._options = context
+        LOGGER.setLevel(context['logging_level'])
+        
+        num_cpus = self._num_cpus or context['num_cpus']
+        allow_action = context['allow_action']
+        
+        sequence = self.get_sequence(**context)
+        
         if len(sequence) == 0:
             raise Usage('No input files specified or found. Nothing to do.')
-        if not self._allow_action:
-            print_debug('Test run. Nothing done.')
-            print_debug('I would have acted on these files:',
-                        ', '.join([str(f) for f in sequence]))
-            return self.execute_next_script()
+        if not allow_action:
+            info('Test run. Nothing done.')
+            info('I would have acted on the following files:') 
+            info(pformat_list(sequence))
+            sys.exit(0)
         
-        kwargs = self.get_action_kwargs()
-
         max_cpus = len(sequence)
-        if self.is_debug(): print_debug('Debugging mode enabled')
+        debug('Debugging mode enabled')
     
-        used_cpus = min([self.get_num_cpus(), max_cpus])
+        used_cpus = min([num_cpus, max_cpus])
     
         # Create output directory if it doesn't exist
         for item in sequence:
             item.check_output_dir(item.output_dir)
         
         if used_cpus == 1:
-            if self.is_debug(): print_debug('multiprocessing disabled')
+            debug('multiprocessing disabled')
             for item in sequence:
-                stdout = action(item, **kwargs)
-                if not self.is_silent() and stdout is not None:
+                stdout = action(item, **context)
+                if not LOGGER.getEffectiveLevel() >= 50 and stdout is not None:
                     print >>sys.stdout, stdout
         else:
-            if self.is_debug():
-                print_debug('WARNING: multiprocessing enabled', os.linesep,
-                            'debug output may get mangeled')
-            if self.is_verbose():
-                print_debug('Using', str(used_cpus), 'cpu(s)...')
-            if not platform.system() == 'Windows':
-                signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+            signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+            debug('multiprocessing enabled')
             p = multiprocessing.Pool(processes=used_cpus)
-            results = [p.apply_async(action, (item,), kwargs) for
+            debug('Initialized pool of %d workers', used_cpus)
+            results = [p.apply_async(action, (item,), context) for
                        item in sequence]
             stdouts = (result.get() for result in results)
             stdouts_good = filter(lambda x: type(x) is str, stdouts)
-            if not self.is_silent() and stdouts_good is not None:
+            if not LOGGER.getEffectiveLevel() >= 50 and stdouts_good is not None:
                 print >>sys.stdout, os.linesep.join(stdouts_good)
 
+        if self.next_script is not None:
+            return self.execute_next_script()
         if not stay_open:
             sys.exit(0)
-        elif self.next_script is not None:
-            return self.execute_next_script()
     
     def execute_next_script(self):
         '''
         execute the next script
         '''
-        if debug: print_debug('Launching the next script', self.next_script)
-        # always proceed with --find
-        next_script_args = ["--find"]
-        # pass along verbosity level
-        for verbosity in self.verbosity_levels:
-            exec(''.join(["next_script_args.append('", verbosity, "')"]))
+        raise NotImplementedError
         os.execlp(self.next_script, "--find")
     
 def _quote(s):
@@ -601,54 +327,69 @@ class Usage(Exception):
     def __str__(self):
         return self.msg
 
-def print_debug(*args):
-    statement = ' '.join(map(str, args))
-    print >>sys.stderr, statement
-
 def assert_path(path):
     '''if path does not exist, raise IOError'''
     if path is None: raise IOError('NoneType is not a valid path')
     if os.path.exists(path): return True
     else:
-        raise IOError(errno.ENOENT, os.strerror(errno.ENOENT), path)
+        raise IOError(ENOENT, os.strerror(ENOENT), path)
+
+def construct_target(name=None):
+    if name is None: name = PROGRAM_NAME
+    try: name = name[0:name.index('.py')]
+    except ValueError: pass
+    date = time.strftime("%m-%d-%Y", time.localtime())
+    user = getpass.getuser()
+    t = '_'.join([name, date, user])
+    i = 0
+    while True:
+        target = '%s.%s' % (t, i)
+        if os.path.exists(target): i += 1
+        else: break
+    return target
 
 class FilenameParser(object):
     @exit_on_Usage
-    def __init__(self, filename,
-                 source_dir=None, target_dir=None,
-                 verbose=False, debug=False,
-                 *args, **kwargs):
-
-        self._debug = debug
+    def __init__(self, filename, drop_parent_name=True,
+                 target=None, no_target=False, *args, **kwargs):
         self.additional_args = args
         self.__dict__.update(kwargs)
 
-        if debug: print_debug('Parsing filename', filename)
+        debug('Parsing filename %s', filename)
 
         self.set_input_file(filename)
 
-        self.input_dir = os.path.split(self.input_file)[0]
-        if self.input_dir == '': self.input_dir = os.curdir
-        if debug: print_debug('Using', self.input_dir, 'as input_dir')
-        self.file_extension = os.path.splitext(
-                                self.input_file)[1].lstrip(os.extsep)
+        input_dir = os.path.relpath(os.path.split(self.input_file)[0] or '.')
+        self.input_dir = input_dir
+        debug('Using %s as input_dir', input_dir)
+        self.file_extension = os.path.splitext(self.input_file)[1][1:]
 
-        if target_dir is not None: self.target_dir = target_dir
-        else: raise Usage('Must specify an output directory with --target')
-        if debug: print_debug('Using', self.target_dir, 'as target_dir')
-
-        # Make sure we have the right output dir
-        # Try to build target_dir/x/y/z from source_dir/x/y/z in input path
-        # then resort to input_dir
-        try:
-            fn_parts = filename.split(os.sep)
-            source_dir_index = fn_parts.index(source_dir)
-            self.output_dir = os.path.join(self.target_dir,
-                                           *fn_parts[source_dir_index+1:-1])
-        except ValueError:
-                self.output_dir = self.target_dir
-       
-        if debug: print_debug('Using', self.output_dir, 'as output_dir')
+        if no_target:
+            output_dir = '.'
+        else:
+            target_dir = construct_target(target)
+            if drop_parent_name:
+                path_by_folder = input_dir.split(os.sep)
+                if len(path_by_folder) == 1:
+                    if path_by_folder[0] in ['.', '..']:
+                        output_dir = target_dir
+                    else:
+                        output_dir = os.path.join(target_dir, input_dir)
+                else:
+                    while True:
+                        try: folder = path_by_folder.pop(0)
+                        except IndexError:
+                            output_dir = target_dir
+                            break
+                        if folder == '..': continue
+                        else:
+                            more_dirs = os.path.join(folder, *path_by_folder)
+                            output_dir = os.path.join(target_dir, more_dirs)
+            else:
+                output_dir = os.path.join(target_dir, input_dir)
+        self.output_dir = output_dir
+        self.check_output_dir(output_dir)
+        debug('Using %s as output_dir', self.output_dir)
 
         self.protoname = os.path.splitext(
                             os.path.basename(self.input_file))[0]
@@ -660,21 +401,19 @@ class FilenameParser(object):
         return self.input_file
 
     def set_input_file(self, filename):
-        if self._debug: print_debug('Checking for', filename, '...')
+        debug('Checking for %s ...', filename)
         assert_path(filename)
         self.input_file = filename
 
     def check_output_dir(self, output_dir):
         # Make the output directory, complain if we fail
         if os.path.exists(output_dir):
-            if self._debug: print_debug('Output directory', 
-                                    _quote(output_dir), 'already exists')
+            debug('Output directory %s already exists', _quote(output_dir))
         else:
-            if self._debug: print_debug('Creating directory',
-                                        _quote(output_dir))
+            debug('Creating directory "%s"', output_dir)
             os.makedirs(output_dir, mode=0755)
             if not os.path.exists(output_dir):
-                raise IOError('Could not create directory ' + output_dir)
+                raise IOError('Could not create directory %s' % output_dir)
 
     def with_extension(self, ext):
         '''Path to output file with extension'''
@@ -699,7 +438,7 @@ def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_files = True,
 
     # Base case
     if os.path.isfile(dir_or_file) and not dir_or_file.startswith('.'):
-        if debug: print_debug('Found file', dir_or_file)
+        debug('Found file %s', dir_or_file)
         return dir_or_file
 
     # Recurse
@@ -884,3 +623,38 @@ def _iter_except(func, exception, first=None):
             yield func()
     except exception:
         pass
+
+def get_logger(level=logging.WARNING):
+    """
+    get_logger(level=WARNING) wraps multiprocessing.get_logger()
+    
+    adds an AnnounceExitFilter to prevent output from getting very garbled
+    at program exit
+    """
+    logger = multiprocessing.get_logger()
+    logger.addFilter(AnnounceExitFilter(False))
+    logger.setLevel(level)
+    return logger
+
+class AnnounceExitFilter(object):
+    """
+    rejects messages announcing thread exit iff the initial condition is False
+
+    looks for specific messages hardcoded into multiprocessing/pool.py
+    see source for more details
+    """
+    def __init__(self, announce_exit):
+        self._announce_exit = announce_exit
+        super(AnnounceExitFilter, self).__init__()
+
+    def filter(self, record):
+        if record.getMessage().startswith('worker got sentinel') or \
+           record.getMessage().startswith('worker exiting') or \
+           record.getMessage().startswith('recreated blocker') or \
+           record.getMessage().startswith('process shutting down') or \
+           record.getMessage().startswith('running all "atexit"') or \
+           record.getMessage().endswith('closing conn') or \
+           record.getMessage().startswith('DECREF'):
+            return self._announce_exit
+        else:
+            return True
