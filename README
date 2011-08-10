@@ -1,0 +1,6 @@
+scripter
+for python >2.6
+
+Intended for automation of tasks on multicore computers
+rewrote scripter to use logging, argparse
+breaks compatibility with scripter < 2.1.0
