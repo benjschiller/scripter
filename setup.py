@@ -15,17 +15,17 @@ try: import py2app
 except ImportError: pass
 
 def main():
-	if not float(sys.version[:3])>=2.6:
-		sys.stderr.write("CRITICAL: Python version must greater than or equal to 2.6! python 2.7.1 is recommended!\n")
+	if not float(sys.version[:3])>=2.7:
+		sys.stderr.write("CRITICAL: Python version must greater than or equal to 2.7! python 2.7.2 is recommended!\n")
 		sys.exit(1)
 	setup(name='scripter',
-	      version='2.9.0',
+	      version='2.9.1',
 	      description="""Intended for automation of tasks on multicore computers
 rewrote scripter to use logging, argparse
 breaks compatibility with scripter < 2.1.0""",
 	      author='Benjamin Schiller',
 	      author_email='benjamin.schiller@ucsf.edu',
-	      install_requires = ['decorator'],
+	      requires = ['decorator'],
 	      packages = ['scripter'],
 	      package_dir = {'scripter': 'src' + os.sep},
   	      classifiers = [
@@ -36,7 +36,6 @@ breaks compatibility with scripter < 2.1.0""",
 				'Operating System :: MacOS :: MacOS X',
 				'Operating System :: Microsoft :: Windows',
 				'Operating System :: POSIX',
-				'Programming Language :: Python :: 2.6',
 				'Programming Language :: Python :: 2.7',
 				]
 	      )

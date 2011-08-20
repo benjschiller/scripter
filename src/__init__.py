@@ -71,7 +71,7 @@ class Environment(object):
     
     provides an execution environment for jobs
     '''
-    def __init__(self, doc=None, version=''):
+    def __init__(self, doc=None, version='', handle_files=True):
         self._script_version = version
         self._unprocessed_sequence = []
         self._sequence = []
@@ -117,8 +117,9 @@ class Environment(object):
                             dest='allow_action', default=True,
                             action='store_false', help="Don't act on files")
         parser.add_argument('--config', help='Use configuration in file foo')
-        parser.add_argument('files', nargs='+',
-                            help='A list of files to act upon (wildcards ok)')
+        if handle_files:
+            parser.add_argument('files', nargs='+',
+                                help='A list of files to act upon (wildcards ok)')
         return
 
     def set_config_reader(self, reader):
@@ -254,7 +255,7 @@ class Environment(object):
         context = vars(args)
         # read config if user supplies method
         if context['config'] is not None:
-            if self._config_reader is None: raise Error ### FINISH
+            if self._config_reader is None: raise NotImplementedError ### FINISH
             cfg_opts = self._config_reader(context['config'])
             context.update(cfg_opts)
         
