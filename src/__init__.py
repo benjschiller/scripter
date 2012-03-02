@@ -350,6 +350,14 @@ def construct_target(name=None):
     return target
 
 class FilenameParser(object):
+    """
+    The default FilenameParser class included with scripter
+    
+    its one mandatory argument is a filename
+    it must accept arbitrary **kwargs or it will be very unhappy
+    
+    It is recommend you customize this class for parsing filenames as needed
+    """
     @exit_on_Usage
     def __init__(self, filename, drop_parent_name=True,
                  target=None, no_target=False, *args, **kwargs):

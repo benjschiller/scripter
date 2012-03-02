@@ -3,8 +3,7 @@
 
 """Description:
 Setup script for scripter
-Copyright (c) 2010 Benjamin Schiller <benjamin.schiller@ucsf.edu>
-All rights reserved.
+Copyright (c) 2010-2012 Benjamin Schiller <benjamin.schiller@ucsf.edu>
 """
 
 import os, sys
@@ -13,23 +12,39 @@ try: import py2exe
 except ImportError: pass
 try: import py2app
 except ImportError: pass
+cmdclass = {}
+try:
+    from sphinx.setup_command import BuildDoc
+    cmdclass['build_sphinx'] = BuildDoc
+except ImportError: pass
+try:
+    from sphinx_pypi_upload import UploadDoc
+    cmdclass['upload_sphinx'] = UploadDoc
+except ImportError: pass
+name = 'scripter'
+version = '3.0'
+release = '3.0'
 
 def main():
 	if not float(sys.version[:3])>=2.7:
 		sys.stderr.write("CRITICAL: Python version must greater than or equal to 2.7! python 2.7.2 is recommended!\n")
 		sys.exit(1)
 	setup(name='scripter',
-	      version='2.9.1',
-	      description="""Intended for automation of tasks on multicore computers
-rewrote scripter to use logging, argparse
-breaks compatibility with scripter < 2.1.0""",
+	      version='3.0',
+	      description="""automation of tasks on multicore computers""",
 	      author='Benjamin Schiller',
 	      author_email='benjamin.schiller@ucsf.edu',
 	      requires = ['decorator'],
 	      packages = ['scripter'],
 	      package_dir = {'scripter': 'src' + os.sep},
+	      cmdclass=cmdclass,
+		  command_options={
+			  'project': ('setup.py', name),
+			  'version': ('setup.py', version),
+			  'release': ('setup.py', release)
+		  },
   	      classifiers = [
-				'Development Status :: 3 - Alpha',
+				'Development Status :: 4 - Beta',
 				'License :: OSI Approved :: Artistic License',
 				'Intended Audience :: Developers',
 				'Intended Audience :: Science/Research',
