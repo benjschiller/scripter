@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-scripter: automation of tasks on multicore computers
-====================================================
+scripter: a tool for parallel execution of functions on many files
+==================================================================
 
 Licensed under Perl Artistic License 2.0
 

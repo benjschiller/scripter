@@ -31,7 +31,7 @@ def main():
 		sys.exit(1)
 	setup(name='scripter',
 	      version='3.0',
-	      description="""automation of tasks on multicore computers""",
+	      description="""a tool for parallel execution of functions on many files""",
 	      author='Benjamin Schiller',
 	      author_email='benjamin.schiller@ucsf.edu',
 	      requires = ['decorator'],
