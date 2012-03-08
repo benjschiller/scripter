@@ -58,7 +58,7 @@ Here is an example :class:`~scripter.FilenameParser` hooked to :class:`~scripter
 
     class ExampleFilenameParser(FilenameParser):
         def __init__(filename, number_of_apples=5, **kwargs):
-             super(self, ExampleFilenameParser).__init__(self, **kwargs)
+             super(ExampleFilenameParser, self).__init__(self, **kwargs)
              self.tree = [filename + '_%d.txt' % num for num in range(number_of_apples)]
 
     e.set_filename_parser(ExampleFilenameParser)
@@ -128,7 +128,10 @@ decorate the main action for this purpose::
 
 This will cause the program to exit and tell the user "could not do something"
 
+Logging
+-------
 
+Use scripter.get_logger() inside the action for parallel-processing-safe logging
 
 
 Indices and tables
