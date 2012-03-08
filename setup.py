@@ -25,6 +25,7 @@ name = 'scripter'
 version = '3.0'
 release = '3.0'
 
+
 def main():
 	if not float(sys.version[:3])>=2.7:
 		sys.stderr.write("CRITICAL: Python version must greater than or equal to 2.7! python 2.7.2 is recommended!\n")
