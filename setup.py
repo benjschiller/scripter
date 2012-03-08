@@ -24,7 +24,10 @@ except ImportError: pass
 name = 'scripter'
 version = '3.0'
 release = '3.0'
+<<<<<<< HEAD
 
+=======
+>>>>>>> branch 'master' of ssh://git@github.com/benjschiller/scripter.git
 
 def main():
 	if not float(sys.version[:3])>=2.7:
@@ -32,7 +35,11 @@ def main():
 		sys.exit(1)
 	setup(name='scripter',
 	      version='3.0',
+<<<<<<< HEAD
 	      description="""a tool for parallel execution of functions on many files""",
+=======
+	      description="""automation of tasks on multicore computers""",
+>>>>>>> branch 'master' of ssh://git@github.com/benjschiller/scripter.git
 	      author='Benjamin Schiller',
 	      author_email='benjamin.schiller@ucsf.edu',
 	      requires = ['decorator'],
