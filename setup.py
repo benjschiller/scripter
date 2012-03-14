@@ -22,15 +22,14 @@ try:
     cmdclass['upload_sphinx'] = UploadDoc
 except ImportError: pass
 name = 'scripter'
-version = '3.0'
-release = '3.0'
+version = '3.1'
 
 def main():
 	if not float(sys.version[:3])>=2.7:
 		sys.stderr.write("CRITICAL: Python version must greater than or equal to 2.7! python 2.7.2 is recommended!\n")
 		sys.exit(1)
 	setup(name='scripter',
-	      version='3.0',
+	      version='3.1',
 	      description="""a tool for parallel execution of functions on many files""",
 	      author='Benjamin Schiller',
 	      author_email='benjamin.schiller@ucsf.edu',
@@ -41,7 +40,6 @@ def main():
 		  command_options={
 			  'project': ('setup.py', name),
 			  'version': ('setup.py', version),
-			  'release': ('setup.py', release)
 		  },
   	      classifiers = [
 				'Development Status :: 4 - Beta',

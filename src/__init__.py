@@ -259,10 +259,6 @@ class Environment(object):
             cfg_opts = self._config_reader(context['config'])
             context.update(cfg_opts)
         
-        # write config if user supplies method
-        if self._config_writer is not None:    
-            self._config_writer(context)
-        
         self._options = context
         LOGGER.setLevel(context['logging_level'])
         
@@ -287,6 +283,11 @@ class Environment(object):
         # Create output directory if it doesn't exist
         for item in sequence:
             item.check_output_dir(item.output_dir)
+
+        # write config if user supplies method
+        if self._config_writer is not None:    
+            self._config_writer(context)
+        
         
         if used_cpus == 1:
             debug('multiprocessing disabled')
