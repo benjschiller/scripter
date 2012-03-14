@@ -280,14 +280,13 @@ class Environment(object):
     
         used_cpus = min([num_cpus, max_cpus])
     
+        # write config if user supplies method
+        if self._config_writer is not None:
+            self._config_writer(**context)
+        
         # Create output directory if it doesn't exist
         for item in sequence:
             item.check_output_dir(item.output_dir)
-
-        # write config if user supplies method
-        if self._config_writer is not None:    
-            self._config_writer(context)
-        
         
         if used_cpus == 1:
             debug('multiprocessing disabled')
@@ -398,7 +397,6 @@ class FilenameParser(object):
             else:
                 output_dir = os.path.join(target_dir, input_dir)
         self.output_dir = output_dir
-        self.check_output_dir(output_dir)
         debug('Using %s as output_dir', self.output_dir)
 
         self.protoname = os.path.splitext(
