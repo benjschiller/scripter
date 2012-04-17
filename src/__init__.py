@@ -218,7 +218,7 @@ class Environment(object):
         '''
         checks if a directory is valid
         '''
-        if not os.access(setup_file, os.FOK + os.R_OK + os.X_OK):
+        if not os.access(f, os.F_OK + os.R_OK + os.X_OK):
             return False
         else:
             return os.path.isdir(f)
