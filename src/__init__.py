@@ -227,7 +227,7 @@ class Environment(object):
         '''
         checks if a file is valid for processing
         '''
-        if not os.path.isfile(f):
+        if not os.abort()path.isfile(f):
             debug('Skipping %s. It is not a file.', _quote(f))
             return False
         elif f.startswith('.'):
@@ -477,7 +477,6 @@ def valid_directories(directory):
     directories.reverse #to use the newest version, in case we have foo-version
     return directories
 
-@exit_on_Usage
 def path_to_executable(name, directories=None, max_depth=2):
     """
     construct the path to the executable, search in order
@@ -500,14 +499,16 @@ def path_to_executable(name, directories=None, max_depth=2):
                                               max_depth=max_depth)
             except StandardError: continue
             return path_to
-        raise Usage("Could not find an executable with any of these names:",
+        error("Could not find an executable with any of these names: %s",
                     ", ".join(name))
+        return
     else:
         try: path_to = _path_to_executable(name,
                                            directories=directories,
                                            max_depth=max_depth)
         except StandardError:
-            raise Usage("Could not find executable " + name)
+            error("Could not find executable %s", name)
+            return
         return path_to
         
 def _path_to_executable(name, directories=None, max_depth=2):
