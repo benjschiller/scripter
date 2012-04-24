@@ -16,7 +16,7 @@ def main():
 		sys.stderr.write("CRITICAL: Python version must greater than or equal to 2.7! python 2.7.2 is recommended!\n")
 		sys.exit(1)
 	setup(name='scripter',
-	      version='3.2.2',
+	      version=version,
 	      description="""a tool for parallel execution of functions on many files""",
 	      author='Benjamin Schiller',
 	      author_email='benjamin.schiller@ucsf.edu',
