@@ -227,10 +227,10 @@ class Environment(object):
         '''
         checks if a file is valid for processing
         '''
-        if not os.abort()path.isfile(f):
+        if not os.path.isfile(f):
             debug('Skipping %s. It is not a file.', _quote(f))
             return False
-        elif f.startswith('.'):
+        elif os.path.basename(f).startswith('.'):
             debug('Skipping hidden file %s', _quote(f))
             return False
         elif self.allowed_extensions is None:
