@@ -318,11 +318,11 @@ class Environment(object):
         raise NotImplementedError
         os.execlp(self.next_script, "--find")
 
-    def get_target_dir(name=None):
-        if self._target_dir = None: self._target = self._construct_target(name)
+    def get_target_dir(self, name=None):
+        if self._target_dir is None: self._target_dir = self._construct_target(name)
         return self._target_dir
 
-    def _construct_target(name=None):
+    def _construct_target(self, name=None):
         if name is None: name = PROGRAM_NAME
         try: name = name[0:name.index('.py')]
         except ValueError: pass
