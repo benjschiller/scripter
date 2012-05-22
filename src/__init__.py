@@ -72,6 +72,7 @@ class Environment(object):
     provides an execution environment for jobs
     '''
     def __init__(self, doc=None, version='', handle_files=True):
+        self._target_dir = None
         self._script_version = version
         self._unprocessed_sequence = []
         self._sequence = []
@@ -274,9 +275,11 @@ class Environment(object):
         
         max_cpus = len(sequence)
         debug('Debugging mode enabled')
-    
+         
         used_cpus = min([num_cpus, max_cpus])
-    
+   
+        context['target_dir'] = self.get_target_dir()
+         
         # write config if user supplies method
         if self._config_writer is not None:
             self._config_writer(**context)
