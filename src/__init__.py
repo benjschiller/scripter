@@ -241,6 +241,20 @@ class Environment(object):
                 debug('Skipping %s because file does not have a valid file '
                       'extension', _quote(f))
                 return False
+   
+    def get_context(self):
+        args = self.argument_parser.parse_args()
+        context = vars(args)
+        context['target_dir'] = self.get_target_dir(context['target'])
+
+        # read config if user supplies method
+        if context['config'] is not None:
+            if self._config_reader is None: raise NotImplementedError ### FINISH
+            cfg_opts = self._config_reader(context['config'])
+            context.update(cfg_opts)
+
+        return context
+
     
     @exit_on_Usage 
     def do_action(self, action, stay_open=False):
@@ -249,15 +263,7 @@ class Environment(object):
         
         actions should be functions that at least take FilenameParser objects
         '''
-        args = self.argument_parser.parse_args()
-        context = vars(args)
-        # read config if user supplies method
-        if context['config'] is not None:
-            if self._config_reader is None: raise NotImplementedError ### FINISH
-            cfg_opts = self._config_reader(context['config'])
-            context.update(cfg_opts)
-        
-        self._options = context
+        context = self.get_context()
         LOGGER.setLevel(context['logging_level'])
         
         num_cpus = self._num_cpus or context['num_cpus']
@@ -278,8 +284,6 @@ class Environment(object):
          
         used_cpus = min([num_cpus, max_cpus])
    
-        context['target_dir'] = self.get_target_dir()
-         
         # write config if user supplies method
         if self._config_writer is not None:
             self._config_writer(**context)
