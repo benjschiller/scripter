@@ -144,8 +144,7 @@ class Environment(object):
         if self._is_first_time:
             self._update_sequence(**kwargs)
             self._is_first_time = False
-        sequence = self._sequence
-        return sequence
+        return self._sequence
 
     def _update_sequence(self, files=[], recursive=False, **kwargs):
         '''
@@ -195,17 +194,14 @@ class Environment(object):
         '''
         returns the class being used as the filename parser
         
-        if with_args is True, then partial is used to apply arguments as
+        if more kwargs are supplied, then partial is used to apply arguments as
         appropriate
         '''
-        if kwargs is not None:
-            debug('Using %s with the following kwargs:',
-                  self._filename_parser.__name__)
-            debug('\n%s', pprint.pformat(kwargs))
-            return partial(self._filename_parser, **kwargs)
-        else:
-            debug('Using %s', self._filename_parser.__name__)
-            return self._filename_parser
+        debug('Using %s with the following kwargs:',
+              self._filename_parser.__name__)
+        kwargs['target_dir'] = self.get_target_dir()
+        debug('\n%s', pprint.pformat(kwargs))
+        return partial(self._filename_parser, **kwargs)
 
     def override_num_cpus(self, num):
         """
@@ -318,6 +314,24 @@ class Environment(object):
         '''
         raise NotImplementedError
         os.execlp(self.next_script, "--find")
+
+    def get_target_dir(name=None):
+        if self._target_dir = None: self._target = self._construct_target(name)
+        return self._target_dir
+
+    def _construct_target(name=None):
+        if name is None: name = PROGRAM_NAME
+        try: name = name[0:name.index('.py')]
+        except ValueError: pass
+        date = time.strftime("%m-%d-%Y", time.localtime())
+        user = getpass.getuser()
+        t = '_'.join([name, date, user])
+        i = 0
+        while True:
+            target = '%s.%s' % (t, i)
+            if os.path.exists(target): i += 1
+            else: break
+        return target
     
 def _quote(s):
     return ''.join(["'", s ,"'"])
@@ -336,19 +350,6 @@ def assert_path(path):
     else:
         raise IOError(ENOENT, os.strerror(ENOENT), path)
 
-def construct_target(name=None):
-    if name is None: name = PROGRAM_NAME
-    try: name = name[0:name.index('.py')]
-    except ValueError: pass
-    date = time.strftime("%m-%d-%Y", time.localtime())
-    user = getpass.getuser()
-    t = '_'.join([name, date, user])
-    i = 0
-    while True:
-        target = '%s.%s' % (t, i)
-        if os.path.exists(target): i += 1
-        else: break
-    return target
 
 class FilenameParser(object):
     """
@@ -361,7 +362,7 @@ class FilenameParser(object):
     """
     @exit_on_Usage
     def __init__(self, filename, drop_parent_name=True,
-                 target=None, no_target=False, *args, **kwargs):
+                 target_dir=None, no_target=False, *args, **kwargs):
         self.additional_args = args
         self.__dict__.update(kwargs)
 
@@ -376,8 +377,10 @@ class FilenameParser(object):
 
         if no_target:
             output_dir = '.'
+        elif target_dir is None:
+            warning('Something went wrong setting the target directory. Using current directory instead')
+            output_dir = '.'
         else:
-            target_dir = construct_target(target)
             if drop_parent_name:
                 path_by_folder = input_dir.split(os.sep)
                 if len(path_by_folder) == 1:
