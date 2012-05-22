@@ -90,7 +90,7 @@ class Environment(object):
         parser.add_argument('-v', '--version',
                             help='show version info and exit',
                             action='version', version=version_str)
-        parser.add_argument('-p', '--num-cpus', nargs='?', target='num_cpus',
+        parser.add_argument('-p', '--num-cpus', nargs='?', dest='num_cpus',
                             type=int,
                             help='specify the number of maximum # CPUs to use',
                             default=multiprocessing.cpu_count())
