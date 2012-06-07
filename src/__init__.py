@@ -76,7 +76,7 @@ class Environment(object):
         self._script_version = version
         self._unprocessed_sequence = []
         self._sequence = []
-        self._script_kwargs = {}
+        self._context = None
         self._filename_parser = FilenameParser
         self._num_cpus = None
         self._config_reader = None
@@ -122,6 +122,8 @@ class Environment(object):
         if handle_files:
             parser.add_argument('files', nargs='+',
                                 help='A list of files to act upon (wildcards ok)')
+        context = vars(parser.parse_known_args()[0])
+        LOGGER.setLevel(context['logging_level'])
         return
 
     def set_config_reader(self, reader):
@@ -241,8 +243,14 @@ class Environment(object):
                 debug('Skipping %s because file does not have a valid file '
                       'extension', _quote(f))
                 return False
+  
+    def update_context(self, update_dict):
+        if self._context is None: self.get_context()
+        self._context.update(update_dict)
    
-    def get_context(self):
+    def get_context(self, force_new=False):
+        if self._context is not None and not force_new:
+            return self._context
         args = self.argument_parser.parse_args()
         context = vars(args)
         context['target_dir'] = self.get_target_dir(context['target'])
@@ -252,7 +260,8 @@ class Environment(object):
             if self._config_reader is None: raise NotImplementedError ### FINISH
             cfg_opts = self._config_reader(context['config'])
             context.update(cfg_opts)
-
+        
+        self._context = context
         return context
 
     
