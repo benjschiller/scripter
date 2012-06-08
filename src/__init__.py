@@ -84,8 +84,27 @@ class Environment(object):
         self.allowed_extensions = None
         self.next_script = None
         self._is_first_time = True
-        parser = argparse.ArgumentParser(description=doc)
-        self.argument_parser = parser
+        real_parser = self._build_default_parser(doc=doc, version=version)
+        # dummy_parser grabs logging level; ignores --help
+        dummy_parser = self._build_default_parser(doc=doc, version=version,
+                                             add_help=False)
+        if handle_files:
+            real_parser.add_argument('files', nargs='+',
+                                help='A list of files to act upon (wildcards ok)')
+            dummy_parser.add_argument('files', nargs='+',
+                                help='A list of files to act upon (wildcards ok)')
+        try:
+            context = vars(dummy_parser.parse_known_args()[0])
+            LOGGER.setLevel(context['logging_level'])
+        except: pass
+        self.argument_parser = real_parser
+        return
+
+    def _build_default_parser(self, doc=None, version='',
+                              add_help=True):
+        """build the default ArgumentParser
+        """
+        parser = argparse.ArgumentParser(description=doc, add_help=add_help)
         version_str = '%(prog)s {0!s} (scripter {1!s})'.format(version,
                                                                __version__)
         parser.add_argument('-v', '--version',
@@ -119,12 +138,8 @@ class Environment(object):
                             dest='allow_action', default=True,
                             action='store_false', help="Don't act on files")
         parser.add_argument('--config', help='Use configuration in file foo')
-        if handle_files:
-            parser.add_argument('files', nargs='+',
-                                help='A list of files to act upon (wildcards ok)')
-        context = vars(parser.parse_known_args()[0])
-        LOGGER.setLevel(context['logging_level'])
-        return
+        return parser
+        
 
     def set_config_reader(self, reader):
         """
