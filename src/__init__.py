@@ -89,9 +89,9 @@ class Environment(object):
         dummy_parser = self._build_default_parser(doc=doc, version=version,
                                              add_help=False)
         if handle_files:
-            real_parser.add_argument('files', nargs='+',
+            real_parser.add_argument('files', nargs='*',
                                 help='A list of files to act upon (wildcards ok)')
-            dummy_parser.add_argument('files', nargs='+',
+            dummy_parser.add_argument('files', nargs='*',
                                 help='A list of files to act upon (wildcards ok)')
         try:
             context = vars(dummy_parser.parse_known_args()[0])
@@ -132,7 +132,7 @@ class Environment(object):
         parser.add_argument('--target', dest='target', nargs='?')
         parser.add_argument('--no-target', action='store_true',
                             help='Write new files in the current directory / do not preserve directory structure')
-        parser.add_argument('--recursive', '-r',
+        parser.add_argument('--recursive', '-r', action='store_true', default=False,
                             help='Recurse through any directories listed looking for valid files')
         parser.add_argument('--no-action', '--do-nothing', '--dry-run',
                             dest='allow_action', default=True,
@@ -512,7 +512,7 @@ def valid_directories(directory):
     directories.reverse #to use the newest version, in case we have foo-version
     return directories
 
-def path_to_executable(name, directories=None, max_depth=2):
+def path_to_executable(name, directories=None, max_depth=2, environ=None):
     """
     construct the path to the executable, search in order
     
@@ -524,6 +524,13 @@ def path_to_executable(name, directories=None, max_depth=2):
 
     *we reverse the order so that we will usually get the newest version
     """
+    if environ is not None:
+        # try it first
+        try:
+            path_to = _path_to_executable(os.environ[environ],
+                                          directories=directories,
+                                          max_depth=max_depth)
+        except StandardError: pass
     # if name is a list, iterate over it to find exe and catch errors
     # bug workaround
     if type(name) is list:

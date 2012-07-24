@@ -9,7 +9,7 @@ Copyright (c) 2010-2012 Benjamin Schiller <benjamin.schiller@ucsf.edu>
 import os, sys
 from setuptools import setup
 name = 'scripter'
-version = '3.3.1'
+version = '3.4.1'
 
 def main():
 	if not float(sys.version[:3])>=2.7:
