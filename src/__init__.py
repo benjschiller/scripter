@@ -91,8 +91,6 @@ class Environment(object):
         if handle_files:
             real_parser.add_argument('files', nargs='*',
                                 help='A list of files to act upon (wildcards ok)')
-            dummy_parser.add_argument('files', nargs='*',
-                                help='A list of files to act upon (wildcards ok)')
         try:
             context = vars(dummy_parser.parse_known_args()[0])
             LOGGER.setLevel(context['logging_level'])
