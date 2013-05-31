@@ -528,6 +528,7 @@ def path_to_executable(name, directories=None, max_depth=2, environ=None):
             path_to = _path_to_executable(os.environ[environ],
                                           directories=directories,
                                           max_depth=max_depth)
+            return path_to
         except StandardError: pass
     # if name is a list, iterate over it to find exe and catch errors
     # bug workaround
