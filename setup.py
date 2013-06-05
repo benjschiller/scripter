@@ -9,7 +9,7 @@ Copyright (c) 2010-2012 Benjamin Schiller <benjamin.schiller@ucsf.edu>
 import os, sys
 from setuptools import setup
 name = 'scripter'
-version = '3.4.1'
+version = '3.4.3'
 
 def main():
 	if not float(sys.version[:3])>=2.7:
@@ -38,6 +38,6 @@ def main():
 				'Programming Language :: Python :: 2.7',
 				]
 	      )
-	
+
 if __name__ == '__main__':
 	main()

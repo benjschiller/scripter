@@ -31,6 +31,12 @@ LOGGER = multiprocessing.log_to_stderr()
 LOGGER.setLevel(logging.CRITICAL)
 
 debug = LOGGER.debug
+# On import, emit calling program
+debug("scripter imported successfully")
+try:
+    debug("initiated from: %s", " ".join(sys.argv))
+except:
+     pass
 info = LOGGER.info
 warning = LOGGER.warning
 error = LOGGER.error
@@ -68,7 +74,7 @@ def exit_on_Usage(func, *args, **kargs):
 class Environment(object):
     '''
     the base class for scripter
-    
+
     provides an execution environment for jobs
     '''
     def __init__(self, doc=None, version='', handle_files=True):
@@ -137,7 +143,7 @@ class Environment(object):
                             action='store_false', help="Don't act on files")
         parser.add_argument('--config', help='Use configuration in file foo')
         return parser
-        
+
 
     def set_config_reader(self, reader):
         """
@@ -154,7 +160,7 @@ class Environment(object):
     def get_sequence(self, **kwargs):
         '''
         returns the sequence of FilenameParser objects for action
-        
+
         Running this more than once will not do anything
         '''
         if self._is_first_time:
@@ -198,18 +204,18 @@ class Environment(object):
                 try: sequence.append(filename_parser(f))
                 except InvalidFileException: pass
         return
-        
+
     def set_filename_parser(self, filename_parser):
         '''
         use the provided filename parser instead of the default one
         '''
         self._filename_parser = filename_parser
         return
-    
+
     def get_filename_parser(self, **kwargs):
         '''
         returns the class being used as the filename parser
-        
+
         if more kwargs are supplied, then partial is used to apply arguments as
         appropriate
         '''
@@ -225,8 +231,8 @@ class Environment(object):
         """
         self._num_cpus = num
         return
-   
-    @staticmethod 
+
+    @staticmethod
     def _is_valid_dir(f):
         '''
         checks if a directory is valid
@@ -235,7 +241,7 @@ class Environment(object):
             return False
         else:
             return os.path.isdir(f)
-        
+
     def _is_valid_file(self, f):
         '''
         checks if a file is valid for processing
@@ -256,11 +262,11 @@ class Environment(object):
                 debug('Skipping %s because file does not have a valid file '
                       'extension', _quote(f))
                 return False
-  
+
     def update_context(self, update_dict):
         if self._context is None: self.get_context()
         self._context.update(update_dict)
-   
+
     def get_context(self, force_new=False):
         if self._context is not None and not force_new:
             return self._context
@@ -273,47 +279,47 @@ class Environment(object):
             if self._config_reader is None: raise NotImplementedError ### FINISH
             cfg_opts = self._config_reader(context['config'])
             context.update(cfg_opts)
-        
+
         self._context = context
         return context
 
-    
-    @exit_on_Usage 
+
+    @exit_on_Usage
     def do_action(self, action, stay_open=False):
         '''
         executes an action
-        
+
         actions should be functions that at least take FilenameParser objects
         '''
         context = self.get_context()
         LOGGER.setLevel(context['logging_level'])
-        
+
         num_cpus = self._num_cpus or context['num_cpus']
         allow_action = context['allow_action']
-        
+
         sequence = self.get_sequence(**context)
-        
+
         if len(sequence) == 0:
             raise Usage('No input files specified or found. Nothing to do.')
         if not allow_action:
             info('Test run. Nothing done.')
-            info('I would have acted on the following files:') 
+            info('I would have acted on the following files:')
             info(pformat_list(sequence))
             sys.exit(0)
-        
+
         max_cpus = len(sequence)
         debug('Debugging mode enabled')
-         
+
         used_cpus = min([num_cpus, max_cpus])
-   
+
         # write config if user supplies method
         if self._config_writer is not None:
             self._config_writer(**context)
-        
+
         # Create output directory if it doesn't exist
         for item in sequence:
             item.check_output_dir(item.output_dir)
-        
+
         if used_cpus == 1:
             debug('multiprocessing disabled')
             for item in sequence:
@@ -336,7 +342,7 @@ class Environment(object):
             return self.execute_next_script()
         if not stay_open:
             sys.exit(0)
-    
+
     def execute_next_script(self):
         '''
         execute the next script
@@ -361,7 +367,7 @@ class Environment(object):
             if os.path.exists(target): i += 1
             else: break
         return target
-    
+
 def _quote(s):
     return ''.join(["'", s ,"'"])
 
@@ -383,10 +389,10 @@ def assert_path(path):
 class FilenameParser(object):
     """
     The default FilenameParser class included with scripter
-    
+
     its one mandatory argument is a filename
     it must accept arbitrary **kwargs or it will be very unhappy
-    
+
     It is recommend you customize this class for parsing filenames as needed
     """
     @exit_on_Usage
@@ -472,7 +478,7 @@ def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_files = True,
     '''
     def is_hidden(node):
         return ignore_hidden_files and node.startswith('.')
-    
+
     # Check sanity
     if not os.path.exists(dir_or_file):
         raise Usage(' '.join([dir_or_file, 'does not exist']))
@@ -513,7 +519,7 @@ def valid_directories(directory):
 def path_to_executable(name, directories=None, max_depth=2, environ=None):
     """
     construct the path to the executable, search in order
-    
+
     the directory specified (or any directory that matches with Unix
                              style pathname pattern expansion*)
     then env PATH
@@ -551,7 +557,7 @@ def path_to_executable(name, directories=None, max_depth=2, environ=None):
             error("Could not find executable %s", name)
             return
         return path_to
-        
+
 def _path_to_executable(name, directories=None, max_depth=2):
     using_windows = platform.system() == 'Windows'
 
@@ -565,7 +571,7 @@ def _path_to_executable(name, directories=None, max_depth=2):
                     return full_path
                 if using_windows and is_valid_executable(full_path + '.exe'):
                     return full_path + '.exe'
-            
+
     #try PATH
     try: PATH = os.environ['PATH']
     except NameError:
@@ -577,7 +583,7 @@ def _path_to_executable(name, directories=None, max_depth=2):
             return full_path
         if using_windows and is_valid_executable(full_path + '.exe'):
             return full_path + '.exe'
-            
+
     #try python scripts
     try:
         script_path = sysconfig.get_path('scripts')
@@ -587,7 +593,7 @@ def _path_to_executable(name, directories=None, max_depth=2):
         if using_windows and is_valid_executable(full_path + '.exe'):
             return full_path + '.exe'
     except NameError, AttributeError: pass
-        
+
     # check if we're on Windows, and try a little harder
     if using_windows:
         all_exes = itertools.ifilter(lambda f: f.endswith('exe'),
@@ -603,7 +609,7 @@ def _path_to_executable(name, directories=None, max_depth=2):
             if (exename == name or exename == namex) and \
                 is_valid_executable(exe):
                     return exe # success
-    
+
     # give up
     raise StandardError
 
@@ -650,7 +656,7 @@ def _iter_except(func, exception, first=None):
     """
     Taken from http://docs.python.org/library/itertools.html
     This function is freely distributable and not covered by the license
-    
+
     Call a function repeatedly until an exception is raised.
 
     Converts a call-until-exception interface to an iterator interface.
@@ -677,7 +683,7 @@ def _iter_except(func, exception, first=None):
 def get_logger(level=logging.WARNING):
     """
     get_logger(level=WARNING) wraps multiprocessing.get_logger()
-    
+
     adds an AnnounceExitFilter to prevent output from getting very garbled
     at program exit
     """
