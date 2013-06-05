@@ -97,7 +97,7 @@ class Environment(object):
         real_parser = self._build_default_parser(doc=doc, version=version)
         # dummy_parser grabs logging level; ignores --help
         dummy_parser = self._build_default_parser(doc=doc, version=version,
-                                                  add_help=False)
+                                                  dummy_parser=True)
         if handle_files:
             real_parser.add_argument('files', nargs='*',
                                      help='A list of files to act upon '
@@ -111,19 +111,16 @@ class Environment(object):
         return
 
     def _build_default_parser(self, doc=None, version='',
-                              add_help=True):
+                              dummy_parser=False):
         """build the default ArgumentParser
         """
-        parser = argparse.ArgumentParser(description=doc, add_help=add_help)
+        parser = argparse.ArgumentParser(description=doc,
+                                         add_help=(not dummy_parser))
         version_str = '%(prog)s {0!s} (scripter {1!s})'.format(version,
                                                                __version__)
         parser.add_argument('-v', '--version',
                             help='show version info and exit',
                             action='version', version=version_str)
-        parser.add_argument('-p', '--num-cpus', nargs='?', dest='num_cpus',
-                            type=int,
-                            help='specify the number of maximum # CPUs to use',
-                            default=multiprocessing.cpu_count())
         vgroup = parser.add_mutually_exclusive_group()
         vgroup.add_argument('--debug', help='Sets logging level to DEBUG',
                             dest='logging_level', action='store_const',
@@ -139,18 +136,28 @@ class Environment(object):
                             dest='logging_level', action='store_const',
                             const=logging.ERROR)
         parser.set_defaults(logging_level=logging.INFO)
-        parser.add_argument('--target', dest='target', nargs='?')
-        parser.add_argument('--no-target', action='store_true',
-                            help='Write new files in the current directory /'
-                                 ' do not preserve directory structure')
-        parser.add_argument('--recursive', '-r', action='store_true',
-                            default=False,
-                            help='Recurse through any directories listed '
-                                 'looking for valid files')
-        parser.add_argument('--no-action', '--do-nothing', '--dry-run',
-                            dest='allow_action', default=True,
-                            action='store_false', help="Don't act on files")
-        parser.add_argument('--config', help='Use configuration in file foo')
+        if not dummy_parser:
+            parser.add_argument('-p', '--num-cpus', nargs='?',
+                                dest='num_cpus',
+                                type=int,
+                                help='specify the number of maximum number '
+                                     ' CPUs to use',
+                                default=multiprocessing.cpu_count())
+            parser.add_argument('--target', dest='target', nargs='?')
+            parser.add_argument('--no-target', action='store_true',
+                                help='Write new files in the current'
+                                     'directory /  do not preserve '
+                                     'directory structure')
+            parser.add_argument('--recursive', '-r', action='store_true',
+                                default=False,
+                                help='Recurse through any directories listed '
+                                     'looking for valid files')
+            parser.add_argument('--no-action', '--do-nothing', '--dry-run',
+                                dest='allow_action', default=True,
+                                action='store_false',
+                                help="Don't act on files")
+            parser.add_argument('--config',
+                                help='Use configuration in file foo')
         return parser
 
     def set_config_reader(self, reader):
@@ -308,23 +315,27 @@ class Environment(object):
         context = self.get_context()
         LOGGER.setLevel(context['logging_level'])
 
-        num_cpus = self._num_cpus or context['num_cpus']
+        num_cpus = self._num_cpus or context['num_cpus'] or \
+            multiprocessing.cpu_count()
         allow_action = context['allow_action']
 
         sequence = self.get_sequence(**context)
+
+        max_cpus = len(sequence)
+        used_cpus = min([num_cpus, max_cpus]) or num_cpus or max_cpus or 1
 
         if len(sequence) == 0:
             raise Usage('No input files specified or found. Nothing to do.')
         if not allow_action:
             info('Test run. Nothing done.')
             info('I would have acted on the following files:')
+            info("Using %d cpus. %d cpus were requested and "
+                 "%d cpus were available", used_cpus, num_cpus or -1,
+                 max_cpus or -1)
             info(pformat_list(sequence))
             sys.exit(0)
 
-        max_cpus = len(sequence)
         debug('Debugging mode enabled')
-
-        used_cpus = min([num_cpus, max_cpus]) or max_cpus or num_cpus or 1
 
         # write config if user supplies method
         if self._config_writer is not None:
@@ -353,7 +364,8 @@ class Environment(object):
             debug('Initialized pool of %d workers', used_cpus)
             results = [p.apply_async(action, (item,), context) for
                        item in sequence]
-            stdouts = (result.get() for result in results)
+            # timeout allows keyboard interrupt, set > 1 year
+            stdouts = (result.get(999999999) for result in results)
             stdouts_good = filter(lambda x: type(x) is str, stdouts)
             if not effectiveLevel >= 50 and stdouts_good is not None:
                 print >>sys.stdout, os.linesep.join(stdouts_good)

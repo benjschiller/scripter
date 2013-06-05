@@ -20,6 +20,7 @@ def main():
 	      description="""a tool for parallel execution of functions on many files""",
 	      author='Benjamin Schiller',
 	      author_email='benjamin.schiller@ucsf.edu',
+          url='https://github.com/benjschiller/scripter',
 	      requires = ['decorator'],
 	      packages = ['scripter'],
 	      package_dir = {'scripter': 'src' + os.sep},
