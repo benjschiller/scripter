@@ -3,20 +3,19 @@
 import multiprocessing
 import argparse
 import sys
-try: import sysconfig
-except ImportError: pass
+try:
+    import sysconfig
+except ImportError:
+    pass
 import os
 import platform
 import glob
 import signal
-import subprocess
 import time
 import getpass
 import pprint
-import functools
 import itertools
 from functools import partial
-import decorator
 from decorator import decorator
 from errno import ENOENT
 import logging
@@ -36,13 +35,15 @@ debug("scripter imported successfully")
 try:
     debug("initiated from: %s", " ".join(sys.argv))
 except:
-     pass
+    pass
+
 info = LOGGER.info
 warning = LOGGER.warning
 error = LOGGER.error
 critical = LOGGER.critical
 log = LOGGER.log
 exception = LOGGER.exception
+
 
 def pformat_list(L):
     """
@@ -51,12 +52,14 @@ def pformat_list(L):
     """
     return pprint.pformat([str(itm) for itm in L])
 
+
 class InvalidFileException(ValueError):
     '''
     Exception for files that do not return a valid FilenameParser object
     '''
     def __init__(self, arg=None):
         super(InvalidFileException, self).__init__(arg)
+
 
 @decorator
 def exit_on_Usage(func, *args, **kargs):
@@ -70,6 +73,7 @@ def exit_on_Usage(func, *args, **kargs):
         sys.stderr.write('%s: %s\n' % (PROGRAM_NAME, err.msg))
         sys.stderr.write("for help use --help\n")
         sys.exit(2)
+
 
 class Environment(object):
     '''
@@ -93,14 +97,16 @@ class Environment(object):
         real_parser = self._build_default_parser(doc=doc, version=version)
         # dummy_parser grabs logging level; ignores --help
         dummy_parser = self._build_default_parser(doc=doc, version=version,
-                                             add_help=False)
+                                                  add_help=False)
         if handle_files:
             real_parser.add_argument('files', nargs='*',
-                                help='A list of files to act upon (wildcards ok)')
+                                     help='A list of files to act upon '
+                                          '(wildcards ok)')
         try:
             context = vars(dummy_parser.parse_known_args()[0])
             LOGGER.setLevel(context['logging_level'])
-        except: pass
+        except:
+            pass
         self.argument_parser = real_parser
         return
 
@@ -120,30 +126,32 @@ class Environment(object):
                             default=multiprocessing.cpu_count())
         vgroup = parser.add_mutually_exclusive_group()
         vgroup.add_argument('--debug', help='Sets logging level to DEBUG',
-                           dest='logging_level', action='store_const',
-                           const=logging.DEBUG)
+                            dest='logging_level', action='store_const',
+                            const=logging.DEBUG)
         vgroup.add_argument('--info', default=logging.INFO,
-                           help='Sets logging level to INFO [default]',
-                           dest='logging_level', action='store_const',
-                           const=logging.INFO)
+                            help='Sets logging level to INFO [default]',
+                            dest='logging_level', action='store_const',
+                            const=logging.INFO)
         vgroup.add_argument('--quiet', help='Sets logging level to WARNING',
-                           dest='logging_level', action='store_const',
-                           const=logging.WARNING)
+                            dest='logging_level', action='store_const',
+                            const=logging.WARNING)
         vgroup.add_argument('--silent', help='Sets logging level to ERROR',
-                           dest='logging_level', action='store_const',
-                           const=logging.ERROR)
+                            dest='logging_level', action='store_const',
+                            const=logging.ERROR)
         parser.set_defaults(logging_level=logging.INFO)
         parser.add_argument('--target', dest='target', nargs='?')
         parser.add_argument('--no-target', action='store_true',
-                            help='Write new files in the current directory / do not preserve directory structure')
-        parser.add_argument('--recursive', '-r', action='store_true', default=False,
-                            help='Recurse through any directories listed looking for valid files')
+                            help='Write new files in the current directory /'
+                                 ' do not preserve directory structure')
+        parser.add_argument('--recursive', '-r', action='store_true',
+                            default=False,
+                            help='Recurse through any directories listed '
+                                 'looking for valid files')
         parser.add_argument('--no-action', '--do-nothing', '--dry-run',
                             dest='allow_action', default=True,
                             action='store_false', help="Don't act on files")
         parser.add_argument('--config', help='Use configuration in file foo')
         return parser
-
 
     def set_config_reader(self, reader):
         """
@@ -178,8 +186,10 @@ class Environment(object):
         unprocessed_files = []
         for item in _iter_except(files.pop, IndexError):
             files = glob.glob(item)
-            if len(files) == 1: unprocessed_files.append(files[0])
-            elif len(files) > 1: unprocessed_files.extend(files)
+            if len(files) == 1:
+                unprocessed_files.append(files[0])
+            elif len(files) > 1:
+                unprocessed_files.extend(files)
         if self.allowed_extensions is not None:
             debug('Valid file extensions are %s',
                   ' '.join(self.allowed_extensions))
@@ -188,7 +198,8 @@ class Environment(object):
             debug(pformat_list(unprocessed_files))
         filename_parser = self.get_filename_parser(**kwargs)
         # note, filenames get processed backward
-        files = itertools.chain(_iter_except(unprocessed_files.pop, IndexError))
+        files = itertools.chain(_iter_except(unprocessed_files.pop,
+                                             IndexError))
         sequence = self._sequence
         for f in files:
             if recursive and self._is_valid_dir(f):
@@ -201,8 +212,10 @@ class Environment(object):
                         except InvalidFileException:
                             pass
             elif self._is_valid_file(f):
-                try: sequence.append(filename_parser(f))
-                except InvalidFileException: pass
+                try:
+                    sequence.append(filename_parser(f))
+                except InvalidFileException:
+                    pass
         return
 
     def set_filename_parser(self, filename_parser):
@@ -264,7 +277,8 @@ class Environment(object):
                 return False
 
     def update_context(self, update_dict):
-        if self._context is None: self.get_context()
+        if self._context is None:
+            self.get_context()
         self._context.update(update_dict)
 
     def get_context(self, force_new=False):
@@ -276,13 +290,13 @@ class Environment(object):
 
         # read config if user supplies method
         if context['config'] is not None:
-            if self._config_reader is None: raise NotImplementedError ### FINISH
+            if self._config_reader is None:
+                raise NotImplementedError  # FINISH ###
             cfg_opts = self._config_reader(context['config'])
             context.update(cfg_opts)
 
         self._context = context
         return context
-
 
     @exit_on_Usage
     def do_action(self, action, stay_open=False):
@@ -310,7 +324,7 @@ class Environment(object):
         max_cpus = len(sequence)
         debug('Debugging mode enabled')
 
-        used_cpus = min([num_cpus, max_cpus])
+        used_cpus = min([num_cpus, max_cpus]) or max_cpus or num_cpus or 1
 
         # write config if user supplies method
         if self._config_writer is not None:
@@ -320,11 +334,17 @@ class Environment(object):
         for item in sequence:
             item.check_output_dir(item.output_dir)
 
+        effectiveLevel = -1
+        try:
+            effectiveLevel = LOGGER.getEffectiveLevel()
+        except TypeError:
+            pass
+
         if used_cpus == 1:
             debug('multiprocessing disabled')
             for item in sequence:
                 stdout = action(item, **context)
-                if not LOGGER.getEffectiveLevel() >= 50 and stdout is not None:
+                if not effectiveLevel >= 50 and stdout is not None:
                     print >>sys.stdout, stdout
         else:
             signal.signal(signal.SIGCHLD, signal.SIG_DFL)
@@ -335,7 +355,7 @@ class Environment(object):
                        item in sequence]
             stdouts = (result.get() for result in results)
             stdouts_good = filter(lambda x: type(x) is str, stdouts)
-            if not LOGGER.getEffectiveLevel() >= 50 and stdouts_good is not None:
+            if not effectiveLevel >= 50 and stdouts_good is not None:
                 print >>sys.stdout, os.linesep.join(stdouts_good)
 
         if self.next_script is not None:
@@ -351,25 +371,33 @@ class Environment(object):
         os.execlp(self.next_script, "--find")
 
     def get_target_dir(self, name=None):
-        if self._target_dir is None: self._target_dir = self._construct_target(name)
+        if self._target_dir is None:
+            self._target_dir = self._construct_target(name)
         return self._target_dir
 
     def _construct_target(self, name=None):
-        if name is None: name = PROGRAM_NAME
-        try: name = name[0:name.index('.py')]
-        except ValueError: pass
+        if name is None:
+            name = PROGRAM_NAME
+        try:
+            name = name[0:name.index('.py')]
+        except ValueError:
+            pass
         date = time.strftime("%m-%d-%Y", time.localtime())
         user = getpass.getuser()
         t = '_'.join([name, date, user])
         i = 0
         while True:
             target = '%s.%s' % (t, i)
-            if os.path.exists(target): i += 1
-            else: break
+            if os.path.exists(target):
+                i += 1
+            else:
+                break
         return target
 
+
 def _quote(s):
-    return ''.join(["'", s ,"'"])
+    return ''.join(["'", s, "'"])
+
 
 class Usage(Exception):
     def __init__(self, *args):
@@ -378,10 +406,13 @@ class Usage(Exception):
     def __str__(self):
         return self.msg
 
+
 def assert_path(path):
     '''if path does not exist, raise IOError'''
-    if path is None: raise IOError('NoneType is not a valid path')
-    if os.path.exists(path): return True
+    if path is None:
+        raise IOError('NoneType is not a valid path')
+    if os.path.exists(path):
+        return True
     else:
         raise IOError(ENOENT, os.strerror(ENOENT), path)
 
@@ -413,7 +444,8 @@ class FilenameParser(object):
         if no_target:
             output_dir = '.'
         elif target_dir is None:
-            warning('Something went wrong setting the target directory. Using current directory instead')
+            warning('Something went wrong setting the target directory. '
+                    'Using current directory instead')
             output_dir = '.'
         else:
             if drop_parent_name:
@@ -425,11 +457,13 @@ class FilenameParser(object):
                         output_dir = os.path.join(target_dir, input_dir)
                 else:
                     while True:
-                        try: folder = path_by_folder.pop(0)
+                        try:
+                            folder = path_by_folder.pop(0)
                         except IndexError:
                             output_dir = target_dir
                             break
-                        if folder == '..': continue
+                        if folder == '..':
+                            continue
                         else:
                             more_dirs = os.path.join(folder, *path_by_folder)
                             output_dir = os.path.join(target_dir, more_dirs)
@@ -439,7 +473,7 @@ class FilenameParser(object):
         debug('Using %s as output_dir', self.output_dir)
 
         self.protoname = os.path.splitext(
-                            os.path.basename(self.input_file))[0]
+            os.path.basename(self.input_file))[0]
 
     def __str__(self):
         return self.input_file
@@ -468,8 +502,8 @@ class FilenameParser(object):
 
 
 @exit_on_Usage
-def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_files = True,
-           max_depth = None):
+def leaves(dir_or_file, allow_symlinks=True, ignore_hidden_files=True,
+           max_depth=None):
     '''takes as input a VALID path and descends into all directories
 
     WARNING:
@@ -510,11 +544,13 @@ def leaves(dir_or_file, allow_symlinks = True, ignore_hidden_files = True,
             files.append(node_path)
     return files
 
+
 def valid_directories(directory):
     '''wrapper for glob.glob, enforces that output must be a valid directory'''
     directories = [dir for dir in glob.glob(directory) if os.path.isdir(dir)]
-    directories.reverse #to use the newest version, in case we have foo-version
+    directories.reverse  # use the newest version, in case we have foo-version
     return directories
+
 
 def path_to_executable(name, directories=None, max_depth=2, environ=None):
     """
@@ -535,7 +571,8 @@ def path_to_executable(name, directories=None, max_depth=2, environ=None):
                                           directories=directories,
                                           max_depth=max_depth)
             return path_to
-        except StandardError: pass
+        except StandardError:
+            pass
     # if name is a list, iterate over it to find exe and catch errors
     # bug workaround
     if type(name) is list:
@@ -544,26 +581,30 @@ def path_to_executable(name, directories=None, max_depth=2, environ=None):
                 path_to = _path_to_executable(try_name,
                                               directories=directories,
                                               max_depth=max_depth)
-            except StandardError: continue
+            except StandardError:
+                continue
             return path_to
         error("Could not find an executable with any of these names: %s",
-                    ", ".join(name))
+              ", ".join(name))
         return
     else:
-        try: path_to = _path_to_executable(name,
-                                           directories=directories,
-                                           max_depth=max_depth)
+        try:
+            path_to = _path_to_executable(name,
+                                          directories=directories,
+                                          max_depth=max_depth)
         except StandardError:
             error("Could not find executable %s", name)
             return
         return path_to
+
 
 def _path_to_executable(name, directories=None, max_depth=2):
     using_windows = platform.system() == 'Windows'
 
     #try specified directory
     if directories is not None:
-        if type(directories) is not list: directories = [directories]
+        if type(directories) is not list:
+            directories = [directories]
         for d in directories:
             for directory in valid_directories(d):
                 full_path = os.path.join(directory, name)
@@ -573,10 +614,13 @@ def _path_to_executable(name, directories=None, max_depth=2):
                     return full_path + '.exe'
 
     #try PATH
-    try: PATH = os.environ['PATH']
+    try:
+        PATH = os.environ['PATH']
     except NameError:
-        try: PATH = os.defpath
-        except NameError: raise Usage("Could not determine PATH")
+        try:
+            PATH = os.defpath
+        except NameError:
+            raise Usage("Could not determine PATH")
     for p in PATH.split(os.pathsep):
         full_path = os.path.join(p, name)
         if is_valid_executable(full_path):
@@ -587,31 +631,33 @@ def _path_to_executable(name, directories=None, max_depth=2):
     #try python scripts
     try:
         script_path = sysconfig.get_path('scripts')
-        full_path = os.path.join(script, name)
+        full_path = os.path.join(script_path, name)
         if is_valid_executable(full_path):
             return full_path
         if using_windows and is_valid_executable(full_path + '.exe'):
             return full_path + '.exe'
-    except NameError, AttributeError: pass
+    except (NameError, AttributeError):
+        pass
 
     # check if we're on Windows, and try a little harder
     if using_windows:
         all_exes = itertools.ifilter(lambda f: f.endswith('exe'),
-                    itertools.chain(
-                                    leaves(os.environ['PROGRAMFILES'],
-                                           max_depth=max_depth),
-                                    leaves(os.environ['PROGRAMFILES(X86)'],
-                                           max_depth=max_depth)
-                    ))
+                                     itertools.chain(
+                                         leaves(os.environ['PROGRAMFILES'],
+                                                max_depth=max_depth),
+                                     leaves(os.environ['PROGRAMFILES(X86)'],
+                                            max_depth=max_depth)
+                                     ))
         namex = name + '.exe'
         for exe in all_exes:
             exename = os.path.split(exe)[1]
             if (exename == name or exename == namex) and \
-                is_valid_executable(exe):
-                    return exe # success
+                    is_valid_executable(exe):
+                    return exe  # success
 
     # give up
     raise StandardError
+
 
 def is_valid_executable(filename):
     """
@@ -622,8 +668,10 @@ def is_valid_executable(filename):
             return filename
     return False
 
+
 def usage_info():
     return ' '.join(['Usage:', PROGRAM_NAME, '[OPTIONS]', 'FILE(S)'])
+
 
 @exit_on_Usage
 def valid_int(thing, msg, vmin, vmax):
@@ -636,12 +684,14 @@ def valid_int(thing, msg, vmin, vmax):
     try:
         int_thing = int(thing)
     except ValueError:
-        try: raise Usage(msg)
+        try:
+            raise Usage(msg)
         except NameError:
             raise Usage("Undefined variable is not a valid integer")
 
     if int_thing < vmin or int_thing > vmax:
-        try: raise Usage(msg)
+        try:
+            raise Usage(msg)
         except NameError:
             raise Usage("Undefined variable is not a valid integer")
     return int_thing
@@ -649,8 +699,11 @@ def valid_int(thing, msg, vmin, vmax):
 
 def extend_buffer(b, x, spacerlines=0):
     """extends buffer b with string x, ignores if x is None"""
-    if b is None or x is None: return b
-    else: return os.linesep.join([b] + [""]*spacerlines  + [x])
+    if b is None or x is None:
+        return b
+    else:
+        return os.linesep.join([b] + [""]*spacerlines + [x])
+
 
 def _iter_except(func, exception, first=None):
     """
@@ -680,6 +733,7 @@ def _iter_except(func, exception, first=None):
     except exception:
         pass
 
+
 def get_logger(level=logging.WARNING):
     """
     get_logger(level=WARNING) wraps multiprocessing.get_logger()
@@ -691,6 +745,7 @@ def get_logger(level=logging.WARNING):
     logger.addFilter(AnnounceExitFilter(False))
     logger.setLevel(level)
     return logger
+
 
 class AnnounceExitFilter(object):
     """
