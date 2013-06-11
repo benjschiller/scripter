@@ -21,28 +21,39 @@ from errno import ENOENT
 import logging
 global PROGRAM_NAME
 PROGRAM_NAME = os.path.basename(sys.argv[0])
-from pkg_resources import get_distribution
+from pkg_resources import get_distribution, iter_entry_points
 VERSION = get_distribution('scripter').version
 __version__ = VERSION
 
-# set up the module-level logger
-LOGGER = multiprocessing.log_to_stderr()
-LOGGER.setLevel(logging.CRITICAL)
+# module-level logger has been moved to Environment
+LOGGER = multiprocessing.get_logger()
 
+# convenience functions
 debug = LOGGER.debug
-# On import, emit calling program
-debug("scripter imported successfully")
-try:
-    debug("initiated from: %s", " ".join(sys.argv))
-except:
-    pass
-
 info = LOGGER.info
 warning = LOGGER.warning
 error = LOGGER.error
 critical = LOGGER.critical
 log = LOGGER.log
 exception = LOGGER.exception
+
+
+# list available handlers
+def list_available_handlers():
+    entry_points = list(iter_entry_points(group='scripter.loggers'))
+    return dict((('.'.join((ep.module_name, ep.name)), ep)
+                 for ep in entry_points))
+
+AVAILABLE_HANDLERS = list_available_handlers()
+
+
+# get the logging handler if specified
+def get_logging_handler(name=None):
+    if name is None:
+        if 'SCRIPTER_LOGGING_HANDLER' in os.environ:
+            name = os.environ['SCRIPTER_LOGGING_HANDLER']
+    if name in AVAILABLE_HANDLERS:
+        return AVAILABLE_HANDLERS[name][1].load()
 
 
 def pformat_list(L):
@@ -102,11 +113,30 @@ class Environment(object):
             real_parser.add_argument('files', nargs='*',
                                      help='A list of files to act upon '
                                           '(wildcards ok)')
-        try:
-            context = vars(dummy_parser.parse_known_args()[0])
-            LOGGER.setLevel(context['logging_level'])
-        except:
-            pass
+        context = vars(dummy_parser.parse_known_args()[0])
+
+        # set up the logger
+        if context['logging_handler'] is None:
+            # LOGGER = multiprocessing.log_to_stderr()
+            # copied this code from multiprocessing/util.py
+            # for compatibility with other handlers
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '[%(levelname)s/%(processName)s] %(message)s')
+            handler.setFormatter(formatter)
+        else:
+            handler = context['logging_handler'](version=version)
+        LOGGER.addHandler(handler)
+
+        LOGGER.setLevel(context['logging_level'])
+
+        if context['logging_handler'] is not None:
+            LOGGER.addHandler(context['logging_handler'])
+            debug("Using custom handler")
+        debug("scripter logging successfully started")
+        # emit logging success
+        debug("initiated from: %s", " ".join(sys.argv))
+
         self.argument_parser = real_parser
         return
 
@@ -121,6 +151,12 @@ class Environment(object):
         parser.add_argument('-v', '--version',
                             help='show version info and exit',
                             action='version', version=version_str)
+        parser.add_argument('--logging-handler', type=get_logging_handler,
+                            help='Name of logging handler to use . If not'
+                            ' specified here, will try to use the environment'
+                            ' variable SCRIPTER_LOGGING_HANDLER. If neither is'
+                            ' available, we will print to stderr.',
+                            choices=AVAILABLE_HANDLERS.keys())
         vgroup = parser.add_mutually_exclusive_group()
         vgroup.add_argument('--debug', help='Sets logging level to DEBUG',
                             dest='logging_level', action='store_const',
@@ -143,11 +179,15 @@ class Environment(object):
                                 help='specify the number of maximum number '
                                      ' CPUs to use',
                                 default=multiprocessing.cpu_count())
-            parser.add_argument('--target', dest='target', nargs='?')
-            parser.add_argument('--no-target', action='store_true',
-                                help='Write new files in the current'
+            tgroup = parser.add_mutually_exclusive_group()
+            tgroup.add_argument('--target', dest='target', nargs='?')
+            tgroup.add_argument('--no-target', action='store_true',
+                                help='Write new files in the current '
                                      'directory /  do not preserve '
                                      'directory structure')
+            tgroup.add_argument('--target-input', action='store_true',
+                                help='Write new files in the same directory '
+                                     'as the input files.')
             parser.add_argument('--recursive', '-r', action='store_true',
                                 default=False,
                                 help='Recurse through any directories listed '
@@ -440,7 +480,8 @@ class FilenameParser(object):
     """
     @exit_on_Usage
     def __init__(self, filename, drop_parent_name=True,
-                 target_dir=None, no_target=False, *args, **kwargs):
+                 target_dir=None, no_target=False,
+                 target_input=False, *args, **kwargs):
         self.additional_args = args
         self.__dict__.update(kwargs)
 
@@ -455,6 +496,8 @@ class FilenameParser(object):
 
         if no_target:
             output_dir = '.'
+        elif target_input:
+            output_dir = input_dir
         elif target_dir is None:
             warning('Something went wrong setting the target directory. '
                     'Using current directory instead')
